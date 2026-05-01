@@ -10,6 +10,7 @@ Predpokladáme podobný workflow ako pri zadaní WEBTE2
 1. Kód bude mať 2 hlavné branche Arduino / Server
 2. Na Arduino branchi bude maintainovany kod pre Arduino, na server branchi kód pre vizualizáciu a správu servéru
 3. Pri pridávaní zmien vytvárajte vlastný nový branch, ktorý sa pri dokončení funkcionality Pull Requestne a Mergne do branch Arduino/Server
+4. PULL REQUEST dávajte do **Arduino** alebo **Server** branch a nie do **Main**
 
 # Základné príkazy
 ```git
