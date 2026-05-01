@@ -18,7 +18,7 @@ git branch                      (displays branches)
 git branch name                 (new branch with name, CLONES CURRENT switched branch)
 git branch -d branchName        (delete branch, do this after merging into arduino/server)
                                 make sure to also delete branch on github in the merge request menu
-git switch branchName           (or checkout branchName)
+git checkout branchName         (don't use git switch)
 
 use github desktop or vscode source control to stage/unstage commits and commit
 
@@ -26,6 +26,22 @@ git pull                        (optional --all)
 git push
 git push origin branchName
 ```
+
+# Inicialny setup
+Vo VSCODE som pouzil tieto prikazy:
+1. git init (klikol som v UI)
+2. git remote add origin https://github.com/PatrikHorvath/poit
+3. git fetch --all
+4. git pull
+5. git branch -a
+6. git switch server
+7. git commit --allow-empty -m "Test empty commit"  (iba testovaci commit, ze vsetko funguje)
+8. push changes (UI button)
+
+Mozno bude potrebne aj 
+> git config --global user.email
+
+> git config --global user.name ""
 
 # Dokumentácie
 Ak je to applicable alebo dosť podstatné pre to čo ste vykonali, tak si spravte z master branche novu branch a pridajte nejaký `nazov_dokumentacie.md`, nech sa nakoniec z toho môže čerpať na dokumentáciu. 
