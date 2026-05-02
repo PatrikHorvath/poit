@@ -1,2 +1,17 @@
 .env
 mysql_data/
+.vscode/sftp.json
+
+.cache
+.cache/**
+.copilot
+.copilot/**
+.vscode-server
+.vscode-server/**
+.dotnet
+.dotnet/**
+.bash_logout
+.bashrc
+.profile
+!flask
+!flask/**
