@@ -10,7 +10,7 @@ services:
       - ./flask/instances:/home/devuser/flask/instances
     ports:
       - "2222:22"
-      - "6000:5000"
+      - "8888:5000"
     restart: unless-stopped
     depends_on:
       - poit-mysql-db

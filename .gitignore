@@ -13,5 +13,8 @@ mysql_data/
 .bash_logout
 .bashrc
 .profile
+.bash_profile
+.bash_history
+
 !flask
 !flask/**
