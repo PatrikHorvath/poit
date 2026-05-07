@@ -4,6 +4,8 @@ mysql_data/
 
 .cache
 .cache/**
+.local
+.local/**
 .copilot
 .copilot/**
 .vscode-server
@@ -19,3 +21,4 @@ mysql_data/
 !flask
 !flask/**
 flask/instances/config.cfg
+.gitconfig

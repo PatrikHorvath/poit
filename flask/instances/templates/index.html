@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Teploty – Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="container">
+
+  <h1>Teplotný Dashboard</h1>
+
+  <!--
+      Záznam (session)
+  -->
+  <section class="card">
+    <h2>Záznam teplôt</h2>
+
+    <div class="rec-controls">
+      <button id="btn-start" onclick="startRecording()">▶ Začať záznam</button>
+      <button id="btn-stop"  onclick="stopRecording()" disabled>■ Stop a uložiť</button>
+      <span id="rec-timer" class="timer hidden"> 0 s</span>
+    </div>
+
+    <!-- Live preview počas záznamu -->
+    <div id="live-box" class="live-box hidden">
+      <div class="live-header">
+        <span class="dot-pulse"></span>
+        <span>Nahrávam – <span id="live-count">0</span> meraní</span>
+        <span id="live-last" class="live-last">–</span>
+      </div>
+      <div id="live-bar-wrap" class="live-bar-wrap">
+        <div id="live-bars" class="live-bars"></div>
+      </div>
+    </div>
+
+    <p id="session-result" class="result"></p>
+  </section>
+
+  <!--
+      Výpis záznamov
+  -->
+  <section class="card">
+    <h2>Záznamy v databáze</h2>
+    <div class="form-row">
+      <button onclick="loadSessions()">Načítať záznamy</button>
+    </div>
+    <div id="sessions-list"></div>
+  </section>
+
+  <!--
+      Detail záznamu podľa ID
+  -->
+  <section class="card">
+    <h2>Detail záznamu</h2>
+    <div class="form-row">
+      <input id="inp-session-id" type="number" min="1" placeholder="ID záznamu" />
+      <button onclick="loadSession()">Zobraziť detail</button>
+    </div>
+    <div id="session-detail"></div>
+  </section>
+
+</div>
+<script src="/static/script.js"></script>
+</body>
+</html>
