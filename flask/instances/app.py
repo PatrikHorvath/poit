@@ -1,69 +1,118 @@
-from flask import Flask, render_template
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 import mysql.connector
 import configparser
-
-app = Flask(__name__)
-
+import json
 import os
 
-basedir = os.path.abspath(os.path.dirname(__file__))
+app = Flask(__name__)
+CORS(app)
+
+# --- Načítanie konfigurácie ---
 config = configparser.ConfigParser()
-config.read(os.path.join(basedir, "config.cfg"))
+config.read(os.path.join(os.path.dirname(__file__), 'config.cfg'))
 
-myhost = config.get("mysqlDB", "host")
-myuser = config.get("mysqlDB", "user")
-mypasswd = config.get("mysqlDB", "passwd")
-mydb = config.get("mysqlDB", "db")
+DB_CONFIG = {
+    'host':     config['mysql']['host'],
+    'user':     config['mysql']['user'],
+    'password': config['mysql']['passwd'],
+    'database': config['mysql']['database'],
+}
 
+print(**DB_CONFIG)
 
-@app.route("/")
-def hello_world():
-    return "Hello, World!"
+def get_db():
+    return mysql.connector.connect(**DB_CONFIG)
 
-
-# predpriprava pre zapisaovanie a citanie dat do databazy
-# aktualne uklada string data, neskor bude riesit pridanie
-# jsonu s citanim senzorov do databazy
-@app.route("/dbadd/<string:insert>")
-def add(insert):
-    db = mysql.connector.connect(
-        host=myhost, user=myuser, password=mypasswd, database=mydb
-    )
-    cursor = db.cursor()
-
-    cursor.execute("SELECT MAX(id) FROM prva")
-    result = cursor.fetchone()
-
-    maxid = result[0] if result[0] is not None else 0
-    new_id = maxid + 1
-
-    sql = "INSERT INTO prva (id, popis) VALUES (%s, %s)"
-    cursor.execute(sql, (new_id, insert))
-
-    db.commit()
-    cursor.close()
-    db.close()
-    return "Done"
+def fmt_dt(dt):
+    return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else None
 
 
-@app.route("/dbdata/<int:num>", methods=["GET", "POST"])
-def dbdata(num):
-    db = mysql.connector.connect(
-        host=myhost, user=myuser, password=mypasswd, database=mydb
-    )
-    cursor = db.cursor()
+#  POST /dbdata/session
+#  Uloží celý záznam po stlačení Stop
+#  Body: { "temperatures": [...], "start_time": "2024-01-01 12:00:00" }
 
-    # Note: Use %s even for integers in mysql-connector
-    cursor.execute("SELECT popis FROM prva WHERE id = %s", (num,))
-    rv = cursor.fetchone()
+@app.route('/dbdata/session', methods=['POST'])
+def save_session():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Očakávam JSON body'}), 400
 
-    cursor.close()
-    db.close()
+    temperatures = data.get('temperatures')
+    start_time   = data.get('start_time')
 
-    if rv:
-        return str(rv[0])
-    return "No record found", 404
+    if not temperatures or not isinstance(temperatures, list):
+        return jsonify({'error': 'Pole "temperatures" musí byť neprázdny zoznam'}), 400
+    if not start_time:
+        return jsonify({'error': 'Pole "start_time" je povinné'}), 400
+
+    temperatures_json = json.dumps(temperatures)
+
+    try:
+        conn   = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO temperature_session (temperatures, start_time) VALUES (%s, %s)",
+            (temperatures_json, start_time)
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+        return jsonify({'message': 'Záznam uložený', 'id': new_id}), 201
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+    finally:
+        cursor.close(); conn.close()
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+
+#  GET /dbdata/session          → zoznam všetkých záznamov (bez temperatures JSON)
+#  GET /dbdata/session/<id>     → detail jedného záznamu vrátane temperatures
+
+@app.route('/dbdata/session', methods=['GET'])
+def list_sessions():
+    try:
+        conn   = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, start_time, JSON_LENGTH(temperatures) AS count "
+            "FROM temperature_session ORDER BY id DESC"
+        )
+        rows = cursor.fetchall()
+        for row in rows:
+            row['start_time'] = fmt_dt(row.get('start_time'))
+        return jsonify({'sessions': rows}), 200
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+    finally:
+        cursor.close(); conn.close()
+
+
+@app.route('/dbdata/session/<int:session_id>', methods=['GET'])
+def get_session(session_id):
+    try:
+        conn   = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, temperatures, start_time FROM temperature_session WHERE id = %s",
+            (session_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': f'Záznam ID {session_id} neexistuje'}), 404
+
+        row['start_time']   = fmt_dt(row.get('start_time'))
+        row['temperatures'] = json.loads(row['temperatures'])
+        return jsonify(row), 200
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+    finally:
+        cursor.close(); conn.close()
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
