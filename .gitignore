@@ -6,6 +6,8 @@ mysql_data/
 .cache/**
 .local
 .local/**
+.vscode
+.vscode/**
 .copilot
 .copilot/**
 .vscode-server
