@@ -23,12 +23,10 @@ socket.on('monitoring_confirmed', (data) => {
         monitoringActive = true;
         document.getElementById('btn-start-monitor').disabled = true;
         document.getElementById('btn-stop-monitor').disabled = false;
-        document.getElementById('monitoring-panel').style.display = 'block';
     } else {
         monitoringActive = false;
         document.getElementById('btn-start-monitor').disabled = false;
         document.getElementById('btn-stop-monitor').disabled = true;
-        document.getElementById('monitoring-panel').style.display = 'none';
     }
 });
 
@@ -42,16 +40,6 @@ socket.on('live_temperature', (data) => {
         } else {
             updateVisualization(currentTemperatures);
         }
-    }
-});
-
-socket.on('monitoring_terminated', (data) => {
-    if (monitoringActive) {
-        monitoringActive = false;
-        document.getElementById('btn-start-monitor').disabled = false;
-        document.getElementById('btn-stop-monitor').disabled = true;
-        document.getElementById('monitoring-panel').style.display = 'none';
-        showNotification(`Monitorovanie ukončené: ${data.message}`, 'info');
     }
 });
 
