@@ -1,4 +1,4 @@
-const API = 'http://127.0.0.1:5000';
+const API = window.location.origin;
 const socket = io(API);
 
 let monitoringActive = false;
@@ -16,17 +16,42 @@ socket.on('connect', () => {
 
 socket.on('device_status_update', (data) => {
     updateDeviceUI(data.status, data.connected);
-    
-    // Ak sa zariadenie vypne, automaticky zastaviť monitorovanie
-    if (data.status === 'off' && monitoringActive) {
-        stopMonitoring();
+});
+
+socket.on('monitoring_confirmed', (data) => {
+    if (data.status === 'active') {
+        monitoringActive = true;
+        document.getElementById('btn-start-monitor').disabled = true;
+        document.getElementById('btn-stop-monitor').disabled = false;
+        document.getElementById('monitoring-panel').style.display = 'block';
+    } else {
+        monitoringActive = false;
+        document.getElementById('btn-start-monitor').disabled = false;
+        document.getElementById('btn-stop-monitor').disabled = true;
+        document.getElementById('monitoring-panel').style.display = 'none';
     }
 });
 
 socket.on('live_temperature', (data) => {
     if (monitoringActive) {
-        updateLiveDisplay(data.temperature, data.timestamp);
-        addDataToChart(data.temperature, data.timestamp);
+        currentTemperatures.push(data);
+        updateLiveDisplay(data.value, data.timestamp);
+
+        if (currentView === 'chart') {
+            addDataToChart(data.value, data.timestamp);
+        } else {
+            updateVisualization(currentTemperatures);
+        }
+    }
+});
+
+socket.on('monitoring_terminated', (data) => {
+    if (monitoringActive) {
+        monitoringActive = false;
+        document.getElementById('btn-start-monitor').disabled = false;
+        document.getElementById('btn-stop-monitor').disabled = true;
+        document.getElementById('monitoring-panel').style.display = 'none';
+        showNotification(`Monitorovanie ukončené: ${data.message}`, 'info');
     }
 });
 
@@ -39,16 +64,11 @@ async function controlSystem(command) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: command })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showNotification(data.message, 'success');
-            
-            // Ak sa systém vypína, zastaviť monitorovanie
-            if (command === 'off' && monitoringActive) {
-                stopMonitoring();
-            }
         } else {
             showNotification(`Chyba: ${data.error}`, 'error');
         }
@@ -61,100 +81,19 @@ async function controlSystem(command) {
 
 async function startMonitoring() {
     try {
-        const response = await fetch(`${API}/api/monitoring/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            monitoringActive = true;
-            
-            // Aktualizovať UI
-            document.getElementById('btn-start-monitor').disabled = true;
-            document.getElementById('btn-stop-monitor').disabled = false;
-            document.getElementById('monitoring-panel').style.display = 'block';
-            
-            showNotification('Monitorovanie spustené - načítavam dáta z databázy', 'success');
-            
-            // Spustiť polling dát z databázy
-            startDataPolling(data.start_time);
-        } else {
-            showNotification(`Chyba: ${data.error}`, 'error');
-        }
+        socket.emit('join_monitoring');
+        showNotification('Monitorovanie spustené - načítavam doterajšie dáta z relácie', 'success');
+        updateVisualization(currentTemperatures);
     } catch (err) {
-        showNotification(`Chyba: ${err.message}`, 'error');
+        console.error('Chyba pri načítaní úvodných dát relácie:', err);
     }
 }
-
-function startDataPolling(startTime) {
-    // Zastaviť predchádzajúci polling
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-    }
-    
-    // Prvé načítanie
-    loadDataFromTime(startTime);
-    
-    // Každé 2 sekundy načítať nové dáta
-    pollingInterval = setInterval(() => {
-        if (monitoringActive) {
-            loadDataFromTime(startTime);
-        }
-    }, 2000);
-}
-
-async function loadDataFromTime(fromTime) {
-    try {
-        const response = await fetch(`${API}/api/temperatures/query`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                from_time: fromTime
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok && data.temperatures) {
-            updateVisualization(data.temperatures);
-            updateStatistics(data.stats);
-        }
-    } catch (err) {
-        console.error('Polling error:', err);
-    }
-}
-
 // ============ ZASTAVIŤ SLEDOVANIE ============
 
-async function stopMonitoring() {
+function stopMonitoring() {
     if (!monitoringActive) return;
-    
-    try {
-        await fetch(`${API}/api/monitoring/stop`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
-        
-        monitoringActive = false;
-        
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
-        }
-        
-        // Aktualizovať UI
-        document.getElementById('btn-start-monitor').disabled = false;
-        document.getElementById('btn-stop-monitor').disabled = true;
-        document.getElementById('monitoring-panel').style.display = 'none';
-        
-        showNotification('Monitorovanie zastavené', 'info');
-    } catch (err) {
-        console.error('Stop monitoring error:', err);
-    }
+    socket.emit('leave_monitoring');
+    showNotification('Monitorovanie zastavené', 'info');
 }
 
 // ============ NAČÍTANIE DÁT PODĽA ČASU ============
@@ -162,8 +101,8 @@ async function stopMonitoring() {
 async function loadDataForPeriod(period) {
     let fromTime, toTime;
     const now = new Date();
-    
-    switch(period) {
+
+    switch (period) {
         case 'hour':
             fromTime = new Date(now.getTime() - 60 * 60 * 1000);
             toTime = now;
@@ -192,29 +131,29 @@ async function loadDataForPeriod(period) {
             }
             break;
     }
-    
+
     const requestBody = {
         from_time: fromTime.toISOString()
     };
-    
+
     if (toTime && !isNaN(toTime)) {
         requestBody.to_time = toTime.toISOString();
     }
-    
+
     try {
         const response = await fetch(`${API}/api/temperatures/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             currentTemperatures = data.temperatures;
             updateVisualization(data.temperatures);
             updateStatistics(data.stats);
-            
+
             const periodText = {
                 'hour': 'hodinu',
                 'day': '24 hodín',
@@ -222,7 +161,7 @@ async function loadDataForPeriod(period) {
                 'month': 'mesiac',
                 'custom': 'vybrané obdobie'
             };
-            
+
             showNotification(`Načítaných ${data.temperatures.length} meraní za posledných ${periodText[period]}`, 'success');
         } else {
             showNotification(`Chyba: ${data.error}`, 'error');
@@ -235,7 +174,7 @@ async function loadDataForPeriod(period) {
 // ============ VIZUALIZÁCIA DÁT ============
 
 function updateVisualization(temperatures) {
-    switch(currentView) {
+    switch (currentView) {
         case 'chart':
             updateChart(temperatures);
             break;
@@ -252,7 +191,7 @@ function updateChart(temperatures) {
     const ctx = document.getElementById('temperature-chart').getContext('2d');
     const labels = temperatures.map(t => new Date(t.timestamp).toLocaleString());
     const values = temperatures.map(t => t.value);
-    
+
     if (temperatureChart) {
         temperatureChart.data.labels = labels;
         temperatureChart.data.datasets[0].data = values;
@@ -288,7 +227,7 @@ function updateChart(temperatures) {
                     },
                     tooltip: {
                         callbacks: {
-                            label: function(context) {
+                            label: function (context) {
                                 return `${context.parsed.y} °C`;
                             }
                         }
@@ -324,28 +263,27 @@ function updateChart(temperatures) {
 
 function addDataToChart(temperature, timestamp) {
     if (!temperatureChart || currentView !== 'chart') return;
-    
+
     const newLabel = new Date(timestamp).toLocaleString();
     temperatureChart.data.labels.push(newLabel);
     temperatureChart.data.datasets[0].data.push(temperature);
-    
-    // Obmedziť počet bodov v grafe
+
     if (temperatureChart.data.labels.length > 100) {
         temperatureChart.data.labels.shift();
         temperatureChart.data.datasets[0].data.shift();
     }
-    
+
     temperatureChart.update();
 }
 
 function updateTable(temperatures) {
     const container = document.getElementById('temperature-table');
-    
+
     if (!temperatures || temperatures.length === 0) {
         container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
         return;
     }
-    
+
     const table = `
         <table class="data-table">
             <thead>
@@ -366,24 +304,24 @@ function updateTable(temperatures) {
             </tbody>
         </table>
     `;
-    
+
     container.innerHTML = table;
 }
 
 function updateGauge(temperatures) {
     const container = document.getElementById('gauges-container');
-    
+
     if (!temperatures || temperatures.length === 0) {
         container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
         return;
     }
-    
+
     const values = temperatures.map(t => t.value);
     const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
     const min = Math.min(...values).toFixed(1);
     const max = Math.max(...values).toFixed(1);
     const latest = values[values.length - 1];
-    
+
     container.innerHTML = `
         <div class="gauge-grid">
             <div class="gauge-card">
@@ -420,12 +358,12 @@ function updateGauge(temperatures) {
 
 function updateStatistics(stats) {
     const container = document.getElementById('statistics');
-    
+
     if (!stats || !stats.count) {
         container.innerHTML = '';
         return;
     }
-    
+
     container.innerHTML = `
         <div class="stats-grid">
             <div class="stat-card">
@@ -462,32 +400,24 @@ function updateStatistics(stats) {
     `;
 }
 
-// ============ PREPÍNANIE VIZUALIZÁCIE ============
-
 function switchView(view) {
     currentView = view;
-    
-    // Aktualizovať aktívne tlačidlo
+
     document.querySelectorAll('.view-btn').forEach(btn => {
         btn.classList.remove('active');
     });
     event.target.classList.add('active');
-    
-    // Skryť všetky view
+
     document.getElementById('chart-view').style.display = 'none';
     document.getElementById('table-view').style.display = 'none';
     document.getElementById('gauge-view').style.display = 'none';
-    
-    // Zobraziť vybraný view
+
     document.getElementById(`${view}-view`).style.display = 'block';
-    
-    // Aktualizovať vizualizáciu s existujúcimi dátami
+
     if (currentTemperatures.length > 0) {
         updateVisualization(currentTemperatures);
     }
 }
-
-// ============ POMOCOVÉ FUNKCIE ============
 
 async function loadDeviceStatus() {
     try {
@@ -504,24 +434,21 @@ function updateDeviceUI(status, connected) {
     const systemSpan = document.getElementById('system-status');
     const btnPowerOn = document.getElementById('btn-power-on');
     const btnPowerOff = document.getElementById('btn-power-off');
-    const btnStartMonitor = document.getElementById('btn-start-monitor');
-    
+
     if (connected) {
         connectionSpan.innerHTML = 'Pripojené';
         connectionSpan.className = 'status-badge status-connected';
-        
+
         if (status === 'on') {
             systemSpan.innerHTML = 'ZAPNUTÝ';
             systemSpan.className = 'status-badge status-on';
             btnPowerOn.disabled = true;
             btnPowerOff.disabled = false;
-            btnStartMonitor.disabled = false;
         } else {
             systemSpan.innerHTML = 'VYPNUTÝ';
             systemSpan.className = 'status-badge status-off';
             btnPowerOn.disabled = false;
             btnPowerOff.disabled = true;
-            btnStartMonitor.disabled = true;
         }
     } else {
         connectionSpan.innerHTML = 'Nepripojené';
@@ -530,15 +457,13 @@ function updateDeviceUI(status, connected) {
         systemSpan.className = 'status-badge status-off';
         btnPowerOn.disabled = true;
         btnPowerOff.disabled = true;
-        btnStartMonitor.disabled = true;
     }
 }
 
 function updateLiveDisplay(temperature, timestamp) {
     document.getElementById('last-temp').innerHTML = `${temperature} °C`;
     document.getElementById('last-time').innerHTML = new Date(timestamp).toLocaleTimeString();
-    
-    // Efekt bliknutia
+
     const tempElement = document.getElementById('last-temp');
     tempElement.style.transform = 'scale(1.1)';
     setTimeout(() => {
@@ -554,22 +479,20 @@ function showNotification(message, type) {
         <span>${message}</span>
     `;
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
         notification.style.animation = 'slideOut 0.3s ease-out';
         setTimeout(() => notification.remove(), 300);
     }, 3000);
 }
 
-// Nastaviť predvolené dátumy
 document.addEventListener('DOMContentLoaded', () => {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    
+
     document.getElementById('custom-from').value = hourAgo.toISOString().slice(0, 16);
     document.getElementById('custom-to').value = now.toISOString().slice(0, 16);
-    
-    // Načítať predvolené dáta
+
     setTimeout(() => {
         loadDataForPeriod('hour');
     }, 500);
