@@ -1,67 +1,122 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Teploty – Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teplotný Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-<div class="container">
-
-  <h1>Teplotný Dashboard</h1>
-
-  <!--
-      Záznam (session)
-  -->
-  <section class="card">
-    <h2>Záznam teplôt</h2>
-
-    <div class="rec-controls">
-      <button id="btn-start" onclick="startRecording()">▶ Začať záznam</button>
-      <button id="btn-stop"  onclick="stopRecording()" disabled>■ Stop a uložiť</button>
-      <span id="rec-timer" class="timer hidden"> 0 s</span>
+    <div class="container">
+        <h1>Teplotný Dashboard</h1>
+        
+        <!-- Stav zariadenia -->
+        <div class="card">
+            <h2>Stav systému</h2>
+            <div id="device-status">
+                <div class="status-indicator">
+                    <span class="status-label">Pripojenie:</span>
+                    <span id="connection-status" class="status-badge status-disconnected">Nepripojené</span>
+                </div>
+                <div class="status-indicator">
+                    <span class="status-label">Stav systému:</span>
+                    <span id="system-status" class="status-badge status-off">VYPNUTÝ</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Ovládanie systému -->
+        <div class="card" id="control-card">
+            <h2>Ovládanie systému</h2>
+            <div class="control-buttons">
+                <button id="btn-power-on" class="btn btn-success" onclick="controlSystem('on')">
+                    ZAPNÚŤ SYSTÉM
+                </button>
+                <button id="btn-power-off" class="btn btn-danger" onclick="controlSystem('off')" disabled>
+                    VYPNÚŤ SYSTÉM
+                </button>
+            </div>
+            
+            <hr>
+            
+            <div class="monitoring-controls">
+                <button id="btn-start-monitor" class="btn btn-primary" onclick="startMonitoring()" disabled>
+                    SLEDOVAŤ
+                </button>
+                <button id="btn-stop-monitor" class="btn btn-secondary" onclick="stopMonitoring()" disabled>
+                    ZRUŠIŤ SLEDOVANIE
+                </button>
+            </div>
+        </div>
+        
+        <!-- Live monitoring panel -->
+        <div id="monitoring-panel" class="card" style="display:none;">
+            <h2>Live monitoring</h2>
+            <div class="live-status">
+                <span class="status-badge monitoring-active">SLEDUJE SA</span>
+                <div class="live-data">
+                    <div class="live-temp">
+                        Aktuálna teplota: <strong id="last-temp">--</strong> °C
+                    </div>
+                    <div class="live-time">
+                        Čas: <strong id="last-time">--</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Vizualizácia dát -->
+        <div class="card">
+            <h2>Vizualizácia teplôt</h2>
+            
+            <!-- Filtre -->
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label>Rýchle filtre:</label>
+                    <button class="btn-filter" onclick="loadDataForPeriod('hour')">Posledná hodina</button>
+                    <button class="btn-filter" onclick="loadDataForPeriod('day')">Posledných 24h</button>
+                    <button class="btn-filter" onclick="loadDataForPeriod('week')">Posledný týždeň</button>
+                    <button class="btn-filter" onclick="loadDataForPeriod('month')">Posledný mesiac</button>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Vlastný rozsah:</label>
+                    <input type="datetime-local" id="custom-from">
+                    <span>→</span>
+                    <input type="datetime-local" id="custom-to">
+                    <button class="btn-filter" onclick="loadDataForPeriod('custom')">Načítať</button>
+                </div>
+            </div>
+            
+            <!-- Prepínanie vizualizácie -->
+            <div class="view-switch">
+                <button class="view-btn active" onclick="switchView('chart')">Graf</button>
+                <button class="view-btn" onclick="switchView('table')">Tabuľka</button>
+                <button class="view-btn" onclick="switchView('gauge')">Gauge</button>
+            </div>
+            
+            <!-- Graf -->
+            <div id="chart-view" class="view-content">
+                <canvas id="temperature-chart"></canvas>
+            </div>
+            
+            <!-- Tabuľka -->
+            <div id="table-view" class="view-content" style="display:none;">
+                <div id="temperature-table" class="table-container"></div>
+            </div>
+            
+            <!-- Gauge -->
+            <div id="gauge-view" class="view-content" style="display:none;">
+                <div class="gauges-container" id="gauges-container"></div>
+            </div>
+            
+            <!-- Štatistika -->
+            <div id="statistics" class="statistics"></div>
+        </div>
     </div>
-
-    <!-- Live preview počas záznamu -->
-    <div id="live-box" class="live-box hidden">
-      <div class="live-header">
-        <span class="dot-pulse"></span>
-        <span>Nahrávam – <span id="live-count">0</span> meraní</span>
-        <span id="live-last" class="live-last">–</span>
-      </div>
-      <div id="live-bar-wrap" class="live-bar-wrap">
-        <div id="live-bars" class="live-bars"></div>
-      </div>
-    </div>
-
-    <p id="session-result" class="result"></p>
-  </section>
-
-  <!--
-      Výpis záznamov
-  -->
-  <section class="card">
-    <h2>Záznamy v databáze</h2>
-    <div class="form-row">
-      <button onclick="loadSessions()">Načítať záznamy</button>
-    </div>
-    <div id="sessions-list"></div>
-  </section>
-
-  <!--
-      Detail záznamu podľa ID
-  -->
-  <section class="card">
-    <h2>Detail záznamu</h2>
-    <div class="form-row">
-      <input id="inp-session-id" type="number" min="1" placeholder="ID záznamu" />
-      <button onclick="loadSession()">Zobraziť detail</button>
-    </div>
-    <div id="session-detail"></div>
-  </section>
-
-</div>
-<script src="/static/script.js"></script>
+    
+    <script src="/static/script.js"></script>
 </body>
 </html>
