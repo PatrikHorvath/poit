@@ -18,9 +18,6 @@ API Endpoint: dietpi.tailfa8c79.ts.net/dbdata/session
 Metóda: POST
 """
 
-# TODO: Impementovať najeký access token do API, a nadviazanie Session
-# aby nebolo možné posielať dáta z iných zdrojov
-
 import serial
 from serial import SerialException
 import json
@@ -32,25 +29,22 @@ from datetime import datetime
 from dotenv import load_dotenv
 import socketio
 
-# Načítanie premenných prostredia z .env súboru
 load_dotenv()
 
 # --- KONFIGURÁCIA ---
 USE_DUMMY_DATA = True  # True = generuje náhodné dáta, False = číta z COM portu
 SERIAL_PORT = "COM3"
 BAUD_RATE = 115200
-API_URL = "https://dietpi.tailfa8c79.ts.net/dbdata/session"
+API_URL = "https://dietpi.tailfa8c79.ts.net/api/measurements"
 WS_URL = "https://dietpi.tailfa8c79.ts.net"
 SECRET_KEY = os.getenv("SECRET_KEY")
-DEVICE_ID = "NodeMCU_Temp_Sensor"
+DEVICE_ID = "Arduino_Peltier_MiddleManComputer"
 SEND_THRESHOLD = 10
 
-# Ak váš tunel/funnel používa self-signed certifikáty, vypnite overovanie zmenou na False
 VERIFY_SSL = True
 
 sio = socketio.Client(ssl_verify=VERIFY_SSL)
 
-# Globálny stav určujúci, či má prebiehať generovanie/čítanie dát
 system_active = False
 
 
@@ -112,10 +106,8 @@ def main():
         print("Čakám na príkaz 'on' z backendu pre spustenie merania...")
 
         while True:
-            # Ak systém nie je aktívny, uspíme slučku a preskočíme spracovanie dát
             if not system_active:
                 time.sleep(0.5)
-                # Ak bol systém vypnutý počas rozrobeného cyklu, vyčistíme buffer, aby neobsahoval staré dáta
                 if data_buffer:
                     data_buffer.clear()
                 continue
@@ -157,26 +149,23 @@ def main():
 def send_to_api(payload):
     try:
         print(f"Odosielam {len(payload)} záznamov na API...")
-        # Odkomentujte po nasadení API
-        # response = requests.post(
-        #     API_URL,
-        #     json=payload,
-        #     headers={"Content-Type": "application/json"},
-        #     verify=VERIFY_SSL,
-        #     timeout=10,
-        # )
-        # if response.status_code in [200, 201]:
-        #     print("Dáta boli úspešne uložené do databázy.")
-        # else:
-        #     print(f"API vrátilo chybu: {response.status_code} - {response.text}")
-
-        # Dočasná simulácia úspešného odoslania
-        # je potrebné najprv implementovať v API pwm_pump a pwm_peltier
-        print("Simulácia odoslania prebehla v poriadku.")
+        response = requests.post(
+            API_URL,
+            json=payload,
+            headers={"Content-Type": "application/json", "X-Device-Token": SECRET_KEY},
+            verify=VERIFY_SSL,
+            timeout=10,
+        )
+        if response.status_code in [200, 201]:
+            print("Dáta boli úspešne uložené do databázy.")
+        else:
+            print(f"API vrátilo chybu: {response.status_code} - {response.text}")
 
     except requests.exceptions.RequestException as e:
         print(f"Nepodarilo sa spojiť s API: {e}")
 
+
+# TODO: pridať prenášanie príkazu on/off do Arduina cez sériový port
 
 if __name__ == "__main__":
     main()
