@@ -4,7 +4,7 @@ import random
 from datetime import datetime
 
 # Konfigurácia
-SECRET_KEY = "S24Gpit520mnb92xxpl67"
+SECRET_KEY = "-"
 SERVER_URL = "http://localhost:5000"
 
 # Vytvorenie Socket.IO klienta
