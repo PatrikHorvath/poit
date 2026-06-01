@@ -2,10 +2,16 @@ const API = window.location.origin;
 const socket = io(API);
 
 let monitoringActive = false;
-let temperatureChart = null;
-let currentView = 'chart';
-let currentTemperatures = [];
-let pollingInterval = null;
+
+// Oddelené stavy pre live a historické dáta
+let liveTemperatures = [];
+let historyTemperatures = [];
+
+let liveChart = null;
+let historyChart = null;
+
+let currentLiveView = 'chart';
+let currentHistoryView = 'chart';
 
 // ============ SOCKET EVENTY ============
 
@@ -23,23 +29,27 @@ socket.on('monitoring_confirmed', (data) => {
         monitoringActive = true;
         document.getElementById('btn-start-monitor').disabled = true;
         document.getElementById('btn-stop-monitor').disabled = false;
+        document.getElementById('monitoring-panel').style.display = 'block';
     } else {
         monitoringActive = false;
         document.getElementById('btn-start-monitor').disabled = false;
         document.getElementById('btn-stop-monitor').disabled = true;
+        document.getElementById('monitoring-panel').style.display = 'none';
     }
 });
 
 socket.on('live_temperature', (data) => {
-    if (monitoringActive) {
-        currentTemperatures.push(data);
-        updateLiveDisplay(data.value, data.timestamp);
+    if (!monitoringActive) return;
 
-        if (currentView === 'chart') {
-            addDataToChart(data.value, data.timestamp);
-        } else {
-            updateVisualization(currentTemperatures);
-        }
+    liveTemperatures.push(data);
+    updateLiveDisplay(data.value, data.timestamp);
+
+    if (currentLiveView === 'chart') {
+        addDataToLiveChart(data.value, data.timestamp);
+    } else if (currentLiveView === 'table') {
+        updateLiveTable(liveTemperatures);
+    } else if (currentLiveView === 'gauge') {
+        updateLiveGauge(liveTemperatures);
     }
 });
 
@@ -50,11 +60,9 @@ async function controlSystem(command) {
         const response = await fetch(`${API}/api/device/control`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: command })
+            body: JSON.stringify({ command })
         });
-
         const data = await response.json();
-
         if (response.ok) {
             showNotification(data.message, 'success');
         } else {
@@ -65,18 +73,18 @@ async function controlSystem(command) {
     }
 }
 
-// ============ ZAČAŤ SLEDOVANIE ============
+// ============ SLEDOVANIE ============
 
 async function startMonitoring() {
-    try {
-        socket.emit('join_monitoring');
-        showNotification('Monitorovanie spustené - načítavam doterajšie dáta z relácie', 'success');
-        updateVisualization(currentTemperatures);
-    } catch (err) {
-        console.error('Chyba pri načítaní úvodných dát relácie:', err);
+    liveTemperatures = [];
+    if (liveChart) {
+        liveChart.data.labels = [];
+        liveChart.data.datasets[0].data = [];
+        liveChart.update();
     }
+    socket.emit('join_monitoring');
+    showNotification('Monitorovanie spustené', 'success');
 }
-// ============ ZASTAVIŤ SLEDOVANIE ============
 
 function stopMonitoring() {
     if (!monitoringActive) return;
@@ -84,7 +92,226 @@ function stopMonitoring() {
     showNotification('Monitorovanie zastavené', 'info');
 }
 
-// ============ NAČÍTANIE DÁT PODĽA ČASU ============
+function downloadLiveDataJSON() {
+    if (liveTemperatures.length === 0) {
+        showNotification('Žiadne live dáta na stiahnutie', 'error');
+        return;
+    }
+
+    const measurements = liveTemperatures.map((t, index) => ({
+        id: index + 1,
+        temperature: t.value,
+        peltier_pwm: t.pwm,
+        time_measured: t.timestamp
+    }));
+
+    const exportData = {
+        exported_at: new Date().toISOString(),
+        count: measurements.length,
+        from: measurements[0].time_measured,
+        to: measurements[measurements.length - 1].time_measured,
+        measurements: measurements
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `live-temperatures-${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showNotification(`Stiahnutých ${measurements.length} meraní`, 'success');
+}
+
+// ============ LIVE VIZUALIZÁCIA ============
+
+function switchLiveView(view, event) {
+    currentLiveView = view;
+
+    document.querySelectorAll('#monitoring-panel .view-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+
+    document.getElementById('live-chart-view').style.display = 'none';
+    document.getElementById('live-table-view').style.display = 'none';
+    document.getElementById('live-gauge-view').style.display = 'none';
+    document.getElementById(`live-${view}-view`).style.display = 'block';
+
+    if (liveTemperatures.length > 0) {
+        updateLiveVisualization(liveTemperatures);
+    }
+}
+
+function updateLiveVisualization(temperatures) {
+    switch (currentLiveView) {
+        case 'chart': updateLiveChartFull(temperatures); break;
+        case 'table': updateLiveTable(temperatures); break;
+        case 'gauge': updateLiveGauge(temperatures); break;
+    }
+}
+
+function updateLiveChartFull(temperatures) {
+    const ctx = document.getElementById('live-temperature-chart').getContext('2d');
+    const labels = temperatures.map(t => new Date(t.timestamp).toLocaleTimeString());
+    const values = temperatures.map(t => t.value);
+
+    if (liveChart) {
+        liveChart.data.labels = labels;
+        liveChart.data.datasets[0].data = values;
+        liveChart.update();
+    } else {
+        liveChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Teplota (°C)',
+                    data: values,
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: chartOptions()
+        });
+    }
+}
+
+function addDataToLiveChart(temperature, timestamp) {
+    if (currentLiveView !== 'chart') return;
+
+    const ctx = document.getElementById('live-temperature-chart').getContext('2d');
+    const newLabel = new Date(timestamp).toLocaleTimeString();
+
+    if (!liveChart) {
+        liveChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [newLabel],
+                datasets: [{
+                    label: 'Teplota (°C)',
+                    data: [temperature],
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: chartOptions()
+        });
+        return;
+    }
+
+    liveChart.data.labels.push(newLabel);
+    liveChart.data.datasets[0].data.push(temperature);
+
+    if (liveChart.data.labels.length > 100) {
+        liveChart.data.labels.shift();
+        liveChart.data.datasets[0].data.shift();
+    }
+
+    liveChart.update();
+}
+
+function updateLiveTable(temperatures) {
+    const container = document.getElementById('live-temperature-table');
+    if (!temperatures || temperatures.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
+        return;
+    }
+    container.innerHTML = buildTable(temperatures);
+}
+
+function updateLiveGauge(temperatures) {
+    const container = document.getElementById('live-gauges-container');
+    container.innerHTML = buildGauge(temperatures);
+}
+
+// ============ HISTORICKÁ VIZUALIZÁCIA ============
+
+function switchHistoryView(view, event) {
+    currentHistoryView = view;
+
+    document.querySelectorAll('#history-chart-view, #history-table-view, #history-gauge-view')
+        .forEach(el => el.style.display = 'none');
+
+    // Aktívne tlačidlo — len v historickej sekcii
+    const historyCard = document.getElementById('history-chart-view').closest('.card');
+    historyCard.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+
+    document.getElementById(`history-${view}-view`).style.display = 'block';
+
+    if (historyTemperatures.length > 0) {
+        updateHistoryVisualization(historyTemperatures);
+    }
+}
+
+function updateHistoryVisualization(temperatures) {
+    switch (currentHistoryView) {
+        case 'chart': updateHistoryChart(temperatures); break;
+        case 'table': updateHistoryTable(temperatures); break;
+        case 'gauge': updateHistoryGauge(temperatures); break;
+    }
+}
+
+function updateHistoryChart(temperatures) {
+    const ctx = document.getElementById('temperature-chart').getContext('2d');
+    const labels = temperatures.map(t => new Date(t.timestamp).toLocaleString());
+    const values = temperatures.map(t => t.value);
+
+    if (historyChart) {
+        historyChart.data.labels = labels;
+        historyChart.data.datasets[0].data = values;
+        historyChart.update();
+    } else {
+        historyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Teplota (°C)',
+                    data: values,
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: chartOptions()
+        });
+    }
+}
+
+function updateHistoryTable(temperatures) {
+    const container = document.getElementById('temperature-table');
+    if (!temperatures || temperatures.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
+        return;
+    }
+    container.innerHTML = buildTable(temperatures);
+}
+
+function updateHistoryGauge(temperatures) {
+    const container = document.getElementById('gauges-container');
+    container.innerHTML = buildGauge(temperatures);
+}
+
+// ============ NAČÍTANIE HISTORICKÝCH DÁT ============
 
 async function loadDataForPeriod(period) {
     let fromTime, toTime;
@@ -114,43 +341,29 @@ async function loadDataForPeriod(period) {
                 showNotification('Zadajte platný dátum začiatku', 'error');
                 return;
             }
-            if (isNaN(toTime)) {
-                toTime = now;
-            }
+            if (isNaN(toTime)) toTime = now;
             break;
     }
 
-    const requestBody = {
-        from_time: fromTime.toISOString()
-    };
-
-    if (toTime && !isNaN(toTime)) {
-        requestBody.to_time = toTime.toISOString();
-    }
+    // Konverzia na Unix timestamp s offsetom — interpretujeme lokálny čas ako keby bol UTC
+    const toLocalTs = (d) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 1000);
+    const startTs = toLocalTs(fromTime);
+    const endTs = toLocalTs(toTime);
 
     try {
-        const response = await fetch(`${API}/api/temperatures/query`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
-
+        const response = await fetch(`${API}/api/archive/${startTs}/${endTs}`);
         const data = await response.json();
 
         if (response.ok) {
-            currentTemperatures = data.temperatures;
-            updateVisualization(data.temperatures);
+            historyTemperatures = data.temperatures;
+            updateHistoryVisualization(data.temperatures);
             updateStatistics(data.stats);
 
             const periodText = {
-                'hour': 'hodinu',
-                'day': '24 hodín',
-                'week': 'týždeň',
-                'month': 'mesiac',
-                'custom': 'vybrané obdobie'
+                'hour': 'hodinu', 'day': '24 hodín',
+                'week': 'týždeň', 'month': 'mesiac', 'custom': 'vybrané obdobie'
             };
-
-            showNotification(`Načítaných ${data.temperatures.length} meraní za posledných ${periodText[period]}`, 'success');
+            showNotification(`Načítaných ${data.temperatures.length} meraní za posledn${period === 'hour' ? 'ú' : 'ých'} ${periodText[period]}`, 'success');
         } else {
             showNotification(`Chyba: ${data.error}`, 'error');
         }
@@ -159,127 +372,40 @@ async function loadDataForPeriod(period) {
     }
 }
 
-// ============ VIZUALIZÁCIA DÁT ============
+// ============ ZDIEĽANÉ POMOCNÉ FUNKCIE ============
 
-function updateVisualization(temperatures) {
-    switch (currentView) {
-        case 'chart':
-            updateChart(temperatures);
-            break;
-        case 'table':
-            updateTable(temperatures);
-            break;
-        case 'gauge':
-            updateGauge(temperatures);
-            break;
-    }
-}
-
-function updateChart(temperatures) {
-    const ctx = document.getElementById('temperature-chart').getContext('2d');
-    const labels = temperatures.map(t => new Date(t.timestamp).toLocaleString());
-    const values = temperatures.map(t => t.value);
-
-    if (temperatureChart) {
-        temperatureChart.data.labels = labels;
-        temperatureChart.data.datasets[0].data = values;
-        temperatureChart.update();
-    } else {
-        temperatureChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Teplota (°C)',
-                    data: values,
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointHoverRadius: 5,
-                    tension: 0.3,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function (context) {
-                                return `${context.parsed.y} °C`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Teplota (°C)'
-                        },
-                        min: 0,
-                        max: 50,
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.05)'
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Čas'
-                        },
-                        ticks: {
-                            maxRotation: 45,
-                            minRotation: 45
-                        }
-                    }
+function chartOptions() {
+    return {
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+            legend: { display: true, position: 'top' },
+            tooltip: {
+                callbacks: {
+                    label: (context) => `${context.parsed.y} °C`
                 }
             }
-        });
-    }
+        },
+        scales: {
+            y: {
+                title: { display: true, text: 'Teplota (°C)' },
+                min: 0, max: 50,
+                grid: { color: 'rgba(0, 0, 0, 0.05)' }
+            },
+            x: {
+                title: { display: true, text: 'Čas' },
+                ticks: { maxRotation: 45, minRotation: 45 }
+            }
+        }
+    };
 }
 
-function addDataToChart(temperature, timestamp) {
-    if (!temperatureChart || currentView !== 'chart') return;
-
-    const newLabel = new Date(timestamp).toLocaleString();
-    temperatureChart.data.labels.push(newLabel);
-    temperatureChart.data.datasets[0].data.push(temperature);
-
-    if (temperatureChart.data.labels.length > 100) {
-        temperatureChart.data.labels.shift();
-        temperatureChart.data.datasets[0].data.shift();
-    }
-
-    temperatureChart.update();
-}
-
-function updateTable(temperatures) {
-    const container = document.getElementById('temperature-table');
-
-    if (!temperatures || temperatures.length === 0) {
-        container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
-        return;
-    }
-
-    const table = `
+function buildTable(temperatures) {
+    return `
         <table class="data-table">
             <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Teplota (°C)</th>
-                    <th>Čas merania</th>
-                </tr>
+                <tr><th>#</th><th>Teplota (°C)</th><th>Čas merania</th></tr>
             </thead>
             <tbody>
                 ${temperatures.slice().reverse().map((t, index) => `
@@ -292,52 +418,46 @@ function updateTable(temperatures) {
             </tbody>
         </table>
     `;
-
-    container.innerHTML = table;
 }
 
-function updateGauge(temperatures) {
-    const container = document.getElementById('gauges-container');
-
+function buildGauge(temperatures) {
     if (!temperatures || temperatures.length === 0) {
-        container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
-        return;
+        return '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
     }
-
     const values = temperatures.map(t => t.value);
     const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
     const min = Math.min(...values).toFixed(1);
     const max = Math.max(...values).toFixed(1);
     const latest = values[values.length - 1];
 
-    container.innerHTML = `
+    return `
         <div class="gauge-grid">
             <div class="gauge-card">
                 <h3>Aktuálna teplota</h3>
                 <div class="gauge-value-large">${latest}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(latest / 50) * 100}%; background: linear-gradient(90deg, #4caf50, #ff9800);"></div>
+                    <div class="gauge-fill" style="width: ${(latest/50)*100}%; background: linear-gradient(90deg, #4caf50, #ff9800);"></div>
                 </div>
             </div>
             <div class="gauge-card">
                 <h3>Priemerná teplota</h3>
                 <div class="gauge-value-large">${avg}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(avg / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #9c27b0);"></div>
+                    <div class="gauge-fill" style="width: ${(avg/50)*100}%; background: linear-gradient(90deg, #2196f3, #9c27b0);"></div>
                 </div>
             </div>
             <div class="gauge-card">
                 <h3>Minimálna teplota</h3>
                 <div class="gauge-value">${min}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(min / 50) * 100}%; background: #4caf50;"></div>
+                    <div class="gauge-fill" style="width: ${(min/50)*100}%; background: #4caf50;"></div>
                 </div>
             </div>
             <div class="gauge-card">
                 <h3>Maximálna teplota</h3>
                 <div class="gauge-value">${max}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(max / 50) * 100}%; background: #f44336;"></div>
+                    <div class="gauge-fill" style="width: ${(max/50)*100}%; background: #f44336;"></div>
                 </div>
             </div>
         </div>
@@ -346,11 +466,7 @@ function updateGauge(temperatures) {
 
 function updateStatistics(stats) {
     const container = document.getElementById('statistics');
-
-    if (!stats || !stats.count) {
-        container.innerHTML = '';
-        return;
-    }
+    if (!stats || !stats.count) { container.innerHTML = ''; return; }
 
     container.innerHTML = `
         <div class="stats-grid">
@@ -388,24 +504,7 @@ function updateStatistics(stats) {
     `;
 }
 
-function switchView(view) {
-    currentView = view;
-
-    document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
-
-    document.getElementById('chart-view').style.display = 'none';
-    document.getElementById('table-view').style.display = 'none';
-    document.getElementById('gauge-view').style.display = 'none';
-
-    document.getElementById(`${view}-view`).style.display = 'block';
-
-    if (currentTemperatures.length > 0) {
-        updateVisualization(currentTemperatures);
-    }
-}
+// ============ STAV ZARIADENIA ============
 
 async function loadDeviceStatus() {
     try {
@@ -426,7 +525,6 @@ function updateDeviceUI(status, connected) {
     if (connected) {
         connectionSpan.innerHTML = 'Pripojené';
         connectionSpan.className = 'status-badge status-connected';
-
         if (status === 'on') {
             systemSpan.innerHTML = 'ZAPNUTÝ';
             systemSpan.className = 'status-badge status-on';
@@ -449,14 +547,12 @@ function updateDeviceUI(status, connected) {
 }
 
 function updateLiveDisplay(temperature, timestamp) {
-    document.getElementById('last-temp').innerHTML = `${temperature} °C`;
+    document.getElementById('last-temp').innerHTML = `${temperature}`;
     document.getElementById('last-time').innerHTML = new Date(timestamp).toLocaleTimeString();
 
     const tempElement = document.getElementById('last-temp');
     tempElement.style.transform = 'scale(1.1)';
-    setTimeout(() => {
-        tempElement.style.transform = 'scale(1)';
-    }, 200);
+    setTimeout(() => { tempElement.style.transform = 'scale(1)'; }, 200);
 }
 
 function showNotification(message, type) {
@@ -467,21 +563,17 @@ function showNotification(message, type) {
         <span>${message}</span>
     `;
     document.body.appendChild(notification);
-
     setTimeout(() => {
         notification.style.animation = 'slideOut 0.3s ease-out';
         setTimeout(() => notification.remove(), 300);
     }, 3000);
 }
 
+// ============ INICIALIZÁCIA ============
+
 document.addEventListener('DOMContentLoaded', () => {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-
     document.getElementById('custom-from').value = hourAgo.toISOString().slice(0, 16);
     document.getElementById('custom-to').value = now.toISOString().slice(0, 16);
-
-    setTimeout(() => {
-        loadDataForPeriod('hour');
-    }, 500);
 });
