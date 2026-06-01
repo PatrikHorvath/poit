@@ -139,6 +139,63 @@ def get_device_status():
         200,
     )
 
+##############################################################################################################################################################
+# endpoint pre historické dáta
+@app.route("/api/archive/<int:start_timestamp>/<int:end_timestamp>", methods=["GET"])
+def archived_data_filter(start_timestamp, end_timestamp):
+    print(start_timestamp, end_timestamp)
+    try:
+        start_dt = datetime.utcfromtimestamp(start_timestamp)
+        end_dt = datetime.utcfromtimestamp(end_timestamp)
+
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT temperature, peltier_pwm, time_measured
+            FROM temperature_measurements
+            WHERE time_measured BETWEEN %s AND %s
+            ORDER BY time_measured ASC
+        """, (start_dt, end_dt))
+
+        rows = cursor.fetchall()
+
+        # Serializácia datetime na string
+        temperatures = [
+            {
+                "value": row["temperature"],
+                "pwm": row["peltier_pwm"],
+                "timestamp": row["time_measured"].isoformat()
+            }
+            for row in rows
+        ]
+
+        # Štatistiky
+        stats = {}
+        if temperatures:
+            values = [t["value"] for t in temperatures]
+            stats = {
+                "count": len(values),
+                "avg": round(sum(values) / len(values), 2),
+                "min": round(min(values), 2),
+                "max": round(max(values), 2),
+                "first": values[0],
+                "last": values[-1]
+            }
+
+        return jsonify({
+            "temperatures": temperatures,
+            "stats": stats,
+            "from": start_dt.isoformat(),
+            "to": end_dt.isoformat()
+        }), 200
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+##############################################################################################################################################################
 
 # endpoint pre prenesenie príkazu z webstránky do zariadenia (zapnúť/vypnúť)
 @app.route("/api/device/control", methods=["POST"])
@@ -172,45 +229,45 @@ def add_measurements():
     token = request.headers.get("X-Device-Token")
     if token != app.config["SECRET_KEY"]:
         return jsonify({"error": "Unauthorized device"}), 401
-
     payload = request.get_json()
     if not payload:
         return jsonify({"error": "Empty payload"}), 400
-
     try:
         conn = get_db()
         cursor = conn.cursor()
-
         query = """
             INSERT INTO temperature_measurements 
             (temperature, peltier_pwm, time_measured) 
             VALUES (%s, %s, %s)
         """
-
         broadcast_data = []
-
         if isinstance(payload, list):
             for item in payload:
                 temp = item.get("temperature")
                 pwm = item.get("pwm_peltier")
                 timestamp = item.get("timestamp")
                 cursor.execute(query, (temp, pwm, timestamp))
-                broadcast_data.append({"value": temp, "timestamp": timestamp})
+                broadcast_data.append({
+                    "id": cursor.lastrowid,
+                    "value": temp,
+                    "pwm": pwm,
+                    "timestamp": timestamp
+                })
         else:
             temp = payload.get("temperature")
             pwm = payload.get("pwm_peltier")
             timestamp = payload.get("timestamp")
             cursor.execute(query, (temp, pwm, timestamp))
-            broadcast_data.append({"value": temp, "timestamp": timestamp})
-
+            broadcast_data.append({
+                "value": temp,
+                "pwm": pwm,
+                "timestamp": timestamp
+            })
         conn.commit()
-
         # broadcast do websocket room
         for data_point in broadcast_data:
             socketio.emit("live_temperature", data_point, room="monitoring")
-
         return jsonify({"message": "Data saved successfully"}), 201
-
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
     finally:
