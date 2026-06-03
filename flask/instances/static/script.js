@@ -45,7 +45,7 @@ socket.on('live_temperature', (data) => {
     updateLiveDisplay(data.value, data.timestamp);
 
     if (currentLiveView === 'chart') {
-        addDataToLiveChart(data.value, data.timestamp);
+        addDataToLiveChart(data.value, data.pwm, data.timestamp);
     } else if (currentLiveView === 'table') {
         updateLiveTable(liveTemperatures);
     } else if (currentLiveView === 'gauge') {
@@ -80,12 +80,12 @@ async function startMonitoring() {
     if (liveChart) {
         liveChart.data.labels = [];
         liveChart.data.datasets[0].data = [];
+        liveChart.data.datasets[1].data = [];
         liveChart.update();
     }
     socket.emit('join_monitoring');
     showNotification('Monitorovanie spustené', 'success');
 }
-
 function stopMonitoring() {
     if (!monitoringActive) return;
     socket.emit('leave_monitoring');
@@ -157,68 +157,70 @@ function updateLiveVisualization(temperatures) {
 function updateLiveChartFull(temperatures) {
     const ctx = document.getElementById('live-temperature-chart').getContext('2d');
     const labels = temperatures.map(t => new Date(t.timestamp).toLocaleTimeString());
-    const values = temperatures.map(t => t.value);
+    const tempValues = temperatures.map(t => t.value);
+    const pwmValues = temperatures.map(t => t.pwm);
 
     if (liveChart) {
         liveChart.data.labels = labels;
-        liveChart.data.datasets[0].data = values;
+        liveChart.data.datasets[0].data = tempValues;
+        liveChart.data.datasets[1].data = pwmValues;
         liveChart.update();
     } else {
         liveChart = new Chart(ctx, {
             type: 'line',
             data: {
                 labels,
-                datasets: [{
-                    label: 'Teplota (°C)',
-                    data: values,
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointHoverRadius: 5,
-                    tension: 0.3,
-                    fill: true
-                }]
+                datasets: [
+                    {
+                        label: 'Teplota (°C)',
+                        data: tempValues,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Peltier PWM (%)',
+                        data: pwmValues,
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y1'
+                    }
+                ]
             },
             options: chartOptions()
         });
     }
 }
 
-function addDataToLiveChart(temperature, timestamp) {
+function addDataToLiveChart(temperature, pwm, timestamp) {
     if (currentLiveView !== 'chart') return;
 
     const ctx = document.getElementById('live-temperature-chart').getContext('2d');
     const newLabel = new Date(timestamp).toLocaleTimeString();
 
     if (!liveChart) {
-        liveChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [newLabel],
-                datasets: [{
-                    label: 'Teplota (°C)',
-                    data: [temperature],
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointHoverRadius: 5,
-                    tension: 0.3,
-                    fill: true
-                }]
-            },
-            options: chartOptions()
-        });
+        updateLiveChartFull(liveTemperatures);
         return;
     }
 
     liveChart.data.labels.push(newLabel);
     liveChart.data.datasets[0].data.push(temperature);
+    liveChart.data.datasets[1].data.push(pwm);
 
     if (liveChart.data.labels.length > 100) {
         liveChart.data.labels.shift();
         liveChart.data.datasets[0].data.shift();
+        liveChart.data.datasets[1].data.shift();
     }
 
     liveChart.update();
@@ -235,18 +237,45 @@ function updateLiveTable(temperatures) {
 
 function updateLiveGauge(temperatures) {
     const container = document.getElementById('live-gauges-container');
-    container.innerHTML = buildGauge(temperatures);
-}
+    if (!temperatures || temperatures.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">Žiadne dáta na zobrazenie</div>';
+        return;
+    }
 
+    const lastTen = temperatures.slice(-10);
+
+    const tempValues = lastTen.map(t => t.value).filter(v => v !== undefined && v !== null);
+    const avgTemp = tempValues.length > 0 ? (tempValues.reduce((a, b) => a + b, 0) / tempValues.length).toFixed(1) : '0.0';
+
+    const pwmValues = lastTen.map(t => t.pwm).filter(v => v !== undefined && v !== null);
+    const avgPwm = pwmValues.length > 0 ? (pwmValues.reduce((a, b) => a + b, 0) / pwmValues.length).toFixed(0) : '0';
+
+    container.innerHTML = `
+        <div class="gauge-grid">
+            <div class="gauge-card">
+                <h3>Priemerná teplota (posledných 10)</h3>
+                <div class="gauge-value-large">${avgTemp}°C</div>
+                <div class="gauge-bar">
+                    <div class="gauge-fill" style="width: ${(avgTemp / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #4caf50);"></div>
+                </div>
+            </div>
+            <div class="gauge-card">
+                <h3>Priemerný PWM výkon (posledných 10)</h3>
+                <div class="gauge-value-large">${avgPwm}%</div>
+                <div class="gauge-bar">
+                    <div class="gauge-fill" style="width: ${avgPwm}%; background: linear-gradient(90deg, #ff9800, #f44336);"></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
 // ============ HISTORICKÁ VIZUALIZÁCIA ============
 
 function switchHistoryView(view, event) {
     currentHistoryView = view;
 
-    document.querySelectorAll('#history-chart-view, #history-table-view, #history-gauge-view')
-        .forEach(el => el.style.display = 'none');
+    document.querySelectorAll('#history-chart-view, #history-table-view').forEach(el => el.style.display = 'none');
 
-    // Aktívne tlačidlo — len v historickej sekcii
     const historyCard = document.getElementById('history-chart-view').closest('.card');
     historyCard.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
     event.target.classList.add('active');
@@ -262,35 +291,51 @@ function updateHistoryVisualization(temperatures) {
     switch (currentHistoryView) {
         case 'chart': updateHistoryChart(temperatures); break;
         case 'table': updateHistoryTable(temperatures); break;
-        case 'gauge': updateHistoryGauge(temperatures); break;
     }
 }
 
 function updateHistoryChart(temperatures) {
     const ctx = document.getElementById('temperature-chart').getContext('2d');
     const labels = temperatures.map(t => new Date(t.timestamp).toLocaleString());
-    const values = temperatures.map(t => t.value);
+    const tempValues = temperatures.map(t => t.value);
+    const pwmValues = temperatures.map(t => t.pwm);
 
     if (historyChart) {
         historyChart.data.labels = labels;
-        historyChart.data.datasets[0].data = values;
+        historyChart.data.datasets[0].data = tempValues;
+        historyChart.data.datasets[1].data = pwmValues;
         historyChart.update();
     } else {
         historyChart = new Chart(ctx, {
             type: 'line',
             data: {
                 labels,
-                datasets: [{
-                    label: 'Teplota (°C)',
-                    data: values,
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointHoverRadius: 5,
-                    tension: 0.3,
-                    fill: true
-                }]
+                datasets: [
+                    {
+                        label: 'Teplota (°C)',
+                        data: tempValues,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Peltier PWM (%)',
+                        data: pwmValues,
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y1'
+                    }
+                ]
             },
             options: chartOptions()
         });
@@ -356,8 +401,17 @@ async function loadDataForPeriod(period) {
 
         if (response.ok) {
             historyTemperatures = data.temperatures;
+
+            const pwmValues = data.temperatures.map(t => t.pwm).filter(v => v !== undefined && v !== null);
+            const localStats = {
+                ...data.stats,
+                pwm_avg: pwmValues.length > 0 ? (pwmValues.reduce((a, b) => a + b, 0) / pwmValues.length).toFixed(0) : '-',
+                pwm_min: pwmValues.length > 0 ? Math.min(...pwmValues) : '-',
+                pwm_max: pwmValues.length > 0 ? Math.max(...pwmValues) : '-'
+            };
+
             updateHistoryVisualization(data.temperatures);
-            updateStatistics(data.stats);
+            updateStatistics(localStats);
 
             const periodText = {
                 'hour': 'hodinu', 'day': '24 hodín',
@@ -380,18 +434,24 @@ function chartOptions() {
         maintainAspectRatio: true,
         interaction: { intersect: false, mode: 'index' },
         plugins: {
-            legend: { display: true, position: 'top' },
-            tooltip: {
-                callbacks: {
-                    label: (context) => `${context.parsed.y} °C`
-                }
-            }
+            legend: { display: true, position: 'top' }
         },
         scales: {
             y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
                 title: { display: true, text: 'Teplota (°C)' },
                 min: 0, max: 50,
                 grid: { color: 'rgba(0, 0, 0, 0.05)' }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: { display: true, text: 'Peltier PWM (%)' },
+                min: 0, max: 100,
+                grid: { drawOnChartArea: false }
             },
             x: {
                 title: { display: true, text: 'Čas' },
@@ -405,13 +465,19 @@ function buildTable(temperatures) {
     return `
         <table class="data-table">
             <thead>
-                <tr><th>#</th><th>Teplota (°C)</th><th>Čas merania</th></tr>
+                <tr>
+                    <th>#</th>
+                    <th>Teplota (°C)</th>
+                    <th>Peltier PWM (%)</th>
+                    <th>Čas merania</th>
+                </tr>
             </thead>
             <tbody>
                 ${temperatures.slice().reverse().map((t, index) => `
                     <tr>
                         <td>${temperatures.length - index}</td>
                         <td><strong>${t.value}</strong></td>
+                        <td>${t.pwm !== undefined && t.pwm !== null ? t.pwm : '-'} %</td>
                         <td>${new Date(t.timestamp).toLocaleString()}</td>
                     </tr>
                 `).join('')}
@@ -436,28 +502,28 @@ function buildGauge(temperatures) {
                 <h3>Aktuálna teplota</h3>
                 <div class="gauge-value-large">${latest}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(latest/50)*100}%; background: linear-gradient(90deg, #4caf50, #ff9800);"></div>
+                    <div class="gauge-fill" style="width: ${(latest / 50) * 100}%; background: linear-gradient(90deg, #4caf50, #ff9800);"></div>
                 </div>
             </div>
             <div class="gauge-card">
                 <h3>Priemerná teplota</h3>
                 <div class="gauge-value-large">${avg}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(avg/50)*100}%; background: linear-gradient(90deg, #2196f3, #9c27b0);"></div>
+                    <div class="gauge-fill" style="width: ${(avg / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #9c27b0);"></div>
                 </div>
             </div>
             <div class="gauge-card">
                 <h3>Minimálna teplota</h3>
                 <div class="gauge-value">${min}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(min/50)*100}%; background: #4caf50;"></div>
+                    <div class="gauge-fill" style="width: ${(min / 50) * 100}%; background: #4caf50;"></div>
                 </div>
             </div>
             <div class="gauge-card">
                 <h3>Maximálna teplota</h3>
                 <div class="gauge-value">${max}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(max/50)*100}%; background: #f44336;"></div>
+                    <div class="gauge-fill" style="width: ${(max / 50) * 100}%; background: #f44336;"></div>
                 </div>
             </div>
         </div>
@@ -477,28 +543,28 @@ function updateStatistics(stats) {
             </div>
             <div class="stat-card">
                 <div class="stat-icon">📈</div>
-                <div class="stat-label">Priemer</div>
+                <div class="stat-label">Priemerná teplota</div>
                 <div class="stat-value">${stats.avg} °C</div>
             </div>
             <div class="stat-card">
                 <div class="stat-icon">📉</div>
-                <div class="stat-label">Minimum</div>
+                <div class="stat-label">Minimálna teplota</div>
                 <div class="stat-value">${stats.min} °C</div>
             </div>
             <div class="stat-card">
                 <div class="stat-icon">📈</div>
-                <div class="stat-label">Maximum</div>
+                <div class="stat-label">Maximálna teplota</div>
                 <div class="stat-value">${stats.max} °C</div>
             </div>
             <div class="stat-card">
                 <div class="stat-icon">🔄</div>
-                <div class="stat-label">Prvá hodnota</div>
-                <div class="stat-value">${stats.first} °C</div>
+                <div class="stat-label">Priemerné PWM</div>
+                <div class="stat-value">${stats.pwm_avg !== undefined ? stats.pwm_avg : '-'} %</div>
             </div>
             <div class="stat-card">
                 <div class="stat-icon">⚡</div>
-                <div class="stat-label">Posledná</div>
-                <div class="stat-value">${stats.last} °C</div>
+                <div class="stat-label">Rozsah PWM</div>
+                <div class="stat-value">${stats.pwm_min !== undefined ? stats.pwm_min : '-'}% - ${stats.pwm_max !== undefined ? stats.pwm_max : '-'}%</div>
             </div>
         </div>
     `;
