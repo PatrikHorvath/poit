@@ -341,6 +341,98 @@ def archived_data_filter(start_timestamp, end_timestamp):
             conn.close()
 
 
+@app.route("/api/session/last", methods=["GET"])
+def get_last_session_data():
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT id, time_start, time_end 
+            FROM working_session
+            ORDER BY time_start DESC 
+            LIMIT 1
+        """)
+        session = cursor.fetchone()
+
+        if not session:
+            return jsonify({"error": "No sessions found in the database"}), 404
+
+        session_id = session["id"]
+
+        cursor.execute(
+            """
+            SELECT temperature, peltier_pwm, time_measured 
+            FROM temperature_measurements 
+            WHERE session_id = %s
+            ORDER BY time_measured ASC
+        """,
+            (session_id,),
+        )
+        rows = cursor.fetchall()
+
+        temperatures = [
+            {
+                "value": (
+                    float(row["temperature"])
+                    if row["temperature"] is not None
+                    else None
+                ),
+                "pwm": (
+                    int(row["peltier_pwm"]) if row["peltier_pwm"] is not None else None
+                ),
+                "timestamp": (
+                    row["time_measured"].isoformat()
+                    if isinstance(row["time_measured"], datetime)
+                    else row["time_measured"]
+                ),
+            }
+            for row in rows
+        ]
+
+        stats = {}
+        if temperatures:
+            values = [t["value"] for t in temperatures if t["value"] is not None]
+            if values:
+                stats = {
+                    "count": len(values),
+                    "avg": round(sum(values) / len(values), 2),
+                    "min": round(min(values), 2),
+                    "max": round(max(values), 2),
+                    "first": values[0],
+                    "last": values[-1],
+                }
+
+        return (
+            jsonify(
+                {
+                    "session_id": session_id,
+                    "time_start": (
+                        session["time_start"].isoformat()
+                        if isinstance(session["time_start"], datetime)
+                        else session["time_start"]
+                    ),
+                    "time_end": (
+                        session["time_end"].isoformat()
+                        if isinstance(session["time_end"], datetime)
+                        else session["time_end"]
+                    ),
+                    "temperatures": temperatures,
+                    "stats": stats,
+                }
+            ),
+            200,
+        )
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        if "cursor" in locals():
+            cursor.close()
+        if "conn" in locals():
+            conn.close()
+
+
 # endpoint pre prenesenie príkazu z webstránky do zariadenia (zapnúť/vypnúť)
 @app.route("/api/device/control", methods=["POST"])
 def control_device():

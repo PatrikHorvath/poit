@@ -27,7 +27,7 @@
           <div class="status-indicator">
             <span class="status-label">Stav systému:</span>
             <span id="system-status" class="status-badge status-off"
-              >VYPNUTÝ</span
+              >Vypnutý</span
             >
           </div>
         </div>
@@ -107,8 +107,7 @@
           </div>
         </div>
 
-        <!-- Prepínanie live vizualizácie -->
-        <div class="view-switch">
+        <div class="view-switch" id="live-view-switch" style="display: none">
           <button
             class="view-btn active"
             onclick="switchLiveView('chart', event)"
@@ -120,9 +119,6 @@
           </button>
           <button class="view-btn" onclick="switchLiveView('gauge', event)">
             Gauge
-          </button>
-          <button class="btn-filter" onclick="downloadLiveDataJSON()">
-            Stiahnuť JSON
           </button>
         </div>
 
@@ -142,7 +138,7 @@
         </div>
       </div>
 
-      <!-- ============ HISTORICKÁ SEKCIA ============ -->
+      <!-- ============ HISTORIC DATA VISUALIZATION ============ -->
       <div class="card">
         <h2>Vizualizácia historických dát</h2>
 
@@ -153,14 +149,14 @@
             <button class="btn-filter" onclick="loadDataForPeriod('hour')">
               Posledná hodina
             </button>
-            <button class="btn-filter" onclick="loadDataForPeriod('day')">
-              Posledných 24h
+            <button class="btn-filter" onclick="loadDataForPeriod('4h')">
+              4 hodiny
             </button>
-            <button class="btn-filter" onclick="loadDataForPeriod('week')">
-              Posledný týždeň
+            <button class="btn-filter" onclick="loadDataForPeriod('8h')">
+              8 hodín
             </button>
-            <button class="btn-filter" onclick="loadDataForPeriod('month')">
-              Posledný mesiac
+            <button class="btn-filter" onclick="loadDataForPeriod('session')">
+              Posledné spustenie
             </button>
           </div>
 
@@ -175,8 +171,15 @@
           </div>
         </div>
 
-        <!-- Prepínanie historickej vizualizácie -->
-        <div class="view-switch">
+        <div
+          id="history-no-data-message"
+          class="alert alert-info"
+          style="margin-top: 15px"
+        >
+          Zvoľte časové obdobie a kliknutím na filter načítajte historické dáta.
+        </div>
+
+        <div class="view-switch" id="history-view-switch" style="display: none">
           <button
             class="view-btn active"
             onclick="switchHistoryView('chart', event)"
@@ -186,25 +189,31 @@
           <button class="view-btn" onclick="switchHistoryView('table', event)">
             Tabuľka
           </button>
+          <button
+            id="btn-download-history"
+            class="btn-filter"
+            onclick="downloadHistoryDataJSON()"
+          >
+            Stiahnuť JSON
+          </button>
         </div>
 
-        <!-- Historický Graf -->
-        <div id="history-chart-view" class="view-content">
-          <canvas id="temperature-chart"></canvas>
+        <div id="history-views-container" style="display: none">
+          <div id="history-chart-view" class="view-content">
+            <div class="history-chart-container">
+              <canvas id="temperature-chart"></canvas>
+            </div>
+          </div>
+
+          <div
+            id="history-table-view"
+            class="view-content"
+            style="display: none"
+          >
+            <div id="temperature-table" class="table-container"></div>
+          </div>
         </div>
 
-        <!-- Historická Tabuľka -->
-        <div id="history-table-view" class="view-content" style="display: none">
-          <div id="temperature-table" class="table-container"></div>
-        </div>
-
-        <!-- Historický Gauge 
-        <div id="history-gauge-view" class="view-content" style="display: none">
-          <div class="gauges-container" id="gauges-container"></div>
-        </div>
-        -->
-
-        <!-- Štatistika -->
         <div id="statistics" class="statistics"></div>
       </div>
     </div>

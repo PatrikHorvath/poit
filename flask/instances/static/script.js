@@ -21,8 +21,8 @@ socket.on('connect', () => {
 });
 
 socket.on('device_status_update', (data) => {
-    updateDeviceUI(data.status, data.connected);
-});
+    updateDeviceUI(data.status, data.connected, data.debug_mode);
+})
 
 socket.on('monitoring_confirmed', (data) => {
     if (data.status === 'active') {
@@ -51,6 +51,10 @@ socket.on('live_temperature', (data) => {
 
     liveTemperatures.push(data);
     updateLiveDisplay(data.value, data.timestamp);
+
+    if (liveTemperatures.length === 1) {
+        document.getElementById('live-view-switch').style.display = 'flex';
+    }
 
     if (currentLiveView === 'chart') {
         addDataToLiveChart(data.value, data.pwm, data.timestamp);
@@ -97,6 +101,7 @@ function sendDebugPwm() {
 
 async function startMonitoring() {
     liveTemperatures = [];
+    document.getElementById('live-view-switch').style.display = 'none';
     if (liveChart) {
         liveChart.data.labels = [];
         liveChart.data.datasets[0].data = [];
@@ -106,19 +111,20 @@ async function startMonitoring() {
     socket.emit('join_monitoring');
     showNotification('Monitorovanie spustené', 'success');
 }
+
 function stopMonitoring() {
     if (!monitoringActive) return;
     socket.emit('leave_monitoring');
     showNotification('Monitorovanie zastavené', 'info');
 }
 
-function downloadLiveDataJSON() {
-    if (liveTemperatures.length === 0) {
-        showNotification('Žiadne live dáta na stiahnutie', 'error');
+function downloadHistoryDataJSON() {
+    if (historyTemperatures.length === 0) {
+        showNotification('Žiadne historické dáta na stiahnutie', 'error');
         return;
     }
 
-    const measurements = liveTemperatures.map((t, index) => ({
+    const measurements = historyTemperatures.map((t, index) => ({
         id: index + 1,
         temperature: t.value,
         peltier_pwm: t.pwm,
@@ -139,13 +145,13 @@ function downloadLiveDataJSON() {
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `live-temperatures-${ts}.json`;
+    a.download = `archive-temperatures-${ts}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    showNotification(`Stiahnutých ${measurements.length} meraní`, 'success');
+    showNotification(`Stiahnutých ${measurements.length} meraní z archívu`, 'success');
 }
 
 // ============ LIVE VIZUALIZÁCIA ============
@@ -197,8 +203,8 @@ function updateLiveChartFull(temperatures) {
                         borderColor: 'rgb(75, 192, 192)',
                         backgroundColor: 'rgba(75, 192, 192, 0.1)',
                         borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
                         tension: 0.3,
                         fill: true,
                         yAxisID: 'y'
@@ -209,15 +215,15 @@ function updateLiveChartFull(temperatures) {
                         borderColor: 'rgb(255, 99, 132)',
                         backgroundColor: 'rgba(255, 99, 132, 0.1)',
                         borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
                         tension: 0.3,
                         fill: false,
                         yAxisID: 'y1'
                     }
                 ]
             },
-            options: chartOptions()
+            options: chartOptions(isLive = true)
         });
     }
 }
@@ -262,33 +268,30 @@ function updateLiveGauge(temperatures) {
         return;
     }
 
-    const lastTen = temperatures.slice(-10);
-
-    const tempValues = lastTen.map(t => t.value).filter(v => v !== undefined && v !== null);
-    const avgTemp = tempValues.length > 0 ? (tempValues.reduce((a, b) => a + b, 0) / tempValues.length).toFixed(1) : '0.0';
-
-    const pwmValues = lastTen.map(t => t.pwm).filter(v => v !== undefined && v !== null);
-    const avgPwm = pwmValues.length > 0 ? (pwmValues.reduce((a, b) => a + b, 0) / pwmValues.length).toFixed(0) : '0';
+    const latest = temperatures[temperatures.length - 1];
+    const currentTemp = latest.value !== undefined && latest.value !== null ? latest.value.toFixed(1) : '0.0';
+    const currentPwm = latest.pwm !== undefined && latest.pwm !== null ? latest.pwm.toFixed(0) : '0';
 
     container.innerHTML = `
         <div class="gauge-grid">
             <div class="gauge-card">
-                <h3>Priemerná teplota (posledných 10)</h3>
-                <div class="gauge-value-large">${avgTemp}°C</div>
+                <h3>Aktuálna teplota</h3>
+                <div class="gauge-value-large">${currentTemp}°C</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(avgTemp / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #4caf50);"></div>
+                    <div class="gauge-fill" style="width: ${(currentTemp / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #4caf50);"></div>
                 </div>
             </div>
             <div class="gauge-card">
-                <h3>Priemerný PWM výkon (posledných 10)</h3>
-                <div class="gauge-value-large">${avgPwm}%</div>
+                <h3>Aktuálny PWM výkon</h3>
+                <div class="gauge-value-large">${currentPwm}%</div>
                 <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${avgPwm}%; background: linear-gradient(90deg, #ff9800, #f44336);"></div>
+                    <div class="gauge-fill" style="width: ${currentPwm}%; background: linear-gradient(90deg, #ff9800, #f44336);"></div>
                 </div>
             </div>
         </div>
     `;
 }
+
 // ============ HISTORICKÁ VIZUALIZÁCIA ============
 
 function switchHistoryView(view, event) {
@@ -337,8 +340,8 @@ function updateHistoryChart(temperatures) {
                         borderColor: 'rgb(75, 192, 192)',
                         backgroundColor: 'rgba(75, 192, 192, 0.1)',
                         borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
                         tension: 0.3,
                         fill: true,
                         yAxisID: 'y'
@@ -349,15 +352,14 @@ function updateHistoryChart(temperatures) {
                         borderColor: 'rgb(255, 99, 132)',
                         backgroundColor: 'rgba(255, 99, 132, 0.1)',
                         borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
                         tension: 0.3,
                         fill: false,
                         yAxisID: 'y1'
                     }
                 ]
-            },
-            options: chartOptions()
+            }, options: chartOptions(isLive = false)
         });
     }
 }
@@ -381,63 +383,84 @@ function updateHistoryGauge(temperatures) {
 async function loadDataForPeriod(period) {
     let fromTime, toTime;
     const now = new Date();
+    let url = '';
 
-    switch (period) {
-        case 'hour':
-            fromTime = new Date(now.getTime() - 60 * 60 * 1000);
-            toTime = now;
-            break;
-        case 'day':
-            fromTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            toTime = now;
-            break;
-        case 'week':
-            fromTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            toTime = now;
-            break;
-        case 'month':
-            fromTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-            toTime = now;
-            break;
-        case 'custom':
-            fromTime = new Date(document.getElementById('custom-from').value);
-            toTime = new Date(document.getElementById('custom-to').value);
-            if (isNaN(fromTime)) {
-                showNotification('Zadajte platný dátum začiatku', 'error');
-                return;
-            }
-            if (isNaN(toTime)) toTime = now;
-            break;
+    if (period === 'session') {
+        url = `${API}/api/session/last`;
+    } else {
+        switch (period) {
+            case 'hour':
+                fromTime = new Date(now.getTime() - 60 * 60 * 1000);
+                toTime = now;
+                break;
+            case '4h':
+                fromTime = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+                toTime = now;
+                break;
+            case '8h':
+                fromTime = new Date(now.getTime() - 8 * 60 * 60 * 1000);
+                toTime = now;
+                break;
+            case 'custom':
+                fromTime = new Date(document.getElementById('custom-from').value);
+                toTime = new Date(document.getElementById('custom-to').value);
+                if (isNaN(fromTime)) {
+                    showNotification('Zadajte platný dátum začiatku', 'error');
+                    return;
+                }
+                if (isNaN(toTime)) toTime = now;
+                break;
+        }
+
+        const toLocalTs = (d) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 1000);
+        const startTs = toLocalTs(fromTime);
+        const endTs = toLocalTs(toTime);
+        url = `${API}/api/archive/${startTs}/${endTs}`;
     }
 
-    // Konverzia na Unix timestamp s offsetom — interpretujeme lokálny čas ako keby bol UTC
-    const toLocalTs = (d) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 1000);
-    const startTs = toLocalTs(fromTime);
-    const endTs = toLocalTs(toTime);
-
     try {
-        const response = await fetch(`${API}/api/archive/${startTs}/${endTs}`);
+        const response = await fetch(url);
         const data = await response.json();
 
         if (response.ok) {
             historyTemperatures = data.temperatures;
 
-            const pwmValues = data.temperatures.map(t => t.pwm).filter(v => v !== undefined && v !== null);
-            const localStats = {
-                ...data.stats,
-                pwm_avg: pwmValues.length > 0 ? (pwmValues.reduce((a, b) => a + b, 0) / pwmValues.length).toFixed(0) : '-',
-                pwm_min: pwmValues.length > 0 ? Math.min(...pwmValues) : '-',
-                pwm_max: pwmValues.length > 0 ? Math.max(...pwmValues) : '-'
-            };
+            const historySwitch = document.getElementById('history-view-switch');
+            const historyNoDataMessage = document.getElementById('history-no-data-message');
+            const historyViewsContainer = document.getElementById('history-views-container');
 
-            updateHistoryVisualization(data.temperatures);
-            updateStatistics(localStats);
+            if (historyTemperatures && historyTemperatures.length > 0) {
+                historySwitch.style.display = 'flex';
+                historyViewsContainer.style.display = 'block';
+                if (historyNoDataMessage) historyNoDataMessage.style.display = 'none';
+
+                const pwmValues = data.temperatures.map(t => t.pwm).filter(v => v !== undefined && v !== null);
+                const localStats = {
+                    ...data.stats,
+                    pwm_avg: pwmValues.length > 0 ? (pwmValues.reduce((a, b) => a + b, 0) / pwmValues.length).toFixed(0) : '-',
+                    pwm_min: pwmValues.length > 0 ? Math.min(...pwmValues) : '-',
+                    pwm_max: pwmValues.length > 0 ? Math.max(...pwmValues) : '-'
+                };
+
+                updateHistoryVisualization(data.temperatures);
+                updateStatistics(localStats);
+            } else {
+                historySwitch.style.display = 'none';
+                historyViewsContainer.style.display = 'none';
+                if (historyNoDataMessage) {
+                    historyNoDataMessage.style.display = 'block';
+                }
+                updateStatistics(null);
+            }
 
             const periodText = {
-                'hour': 'hodinu', 'day': '24 hodín',
-                'week': 'týždeň', 'month': 'mesiac', 'custom': 'vybrané obdobie'
+                'hour': 'hodinu',
+                '4h': '4 hodiny',
+                '8h': '8 hodín',
+                'session': 'poslednú reláciu',
+                'custom': 'vybrané obdobie'
             };
-            showNotification(`Načítaných ${data.temperatures.length} meraní za posledn${period === 'hour' ? 'ú' : 'ých'} ${periodText[period]}`, 'success');
+            showNotification(`Načítaných ${data.temperatures.length} meraní za ${period === 'session' ? 'pre' : 'posledn'}${period === 'hour' ? 'ú' : period === 'session' ? '' : 'ých'} ${periodText[period]}`, 'success');
         } else {
             showNotification(`Chyba: ${data.error}`, 'error');
         }
@@ -448,10 +471,11 @@ async function loadDataForPeriod(period) {
 
 // ============ ZDIEĽANÉ POMOCNÉ FUNKCIE ============
 
-function chartOptions() {
+function chartOptions(isLive = true) {
     return {
         responsive: true,
-        maintainAspectRatio: true,
+        maintainAspectRatio: isLive,
+        aspectRatio: isLive ? 2 : undefined,
         interaction: { intersect: false, mode: 'index' },
         plugins: {
             legend: { display: true, position: 'top' }
@@ -461,16 +485,35 @@ function chartOptions() {
                 type: 'linear',
                 display: true,
                 position: 'left',
-                title: { display: true, text: 'Teplota (°C)' },
-                min: 0, max: 50,
+                title: {
+                    display: true,
+                    text: 'Teplota (°C)',
+                    color: 'rgb(0, 57, 100)',
+                    font: { weight: 'bold' }
+                },
+                ticks: {
+                    color: 'rgb(0, 57, 100)',
+                    font: { weight: 'bold' }
+                },
+                grace: '10%',
                 grid: { color: 'rgba(0, 0, 0, 0.05)' }
             },
             y1: {
                 type: 'linear',
                 display: true,
                 position: 'right',
-                title: { display: true, text: 'Peltier PWM (%)' },
-                min: 0, max: 100,
+                title: {
+                    display: true,
+                    text: 'Peltier PWM (%)',
+                    color: 'rgb(135, 0, 29)',
+                    font: { weight: 'bold' }
+                },
+                ticks: {
+                    color: 'rgb(135, 0, 29)',
+                    font: { weight: 'bold' }
+                },
+                min: 0,
+                max: 100,
                 grid: { drawOnChartArea: false }
             },
             x: {
@@ -562,7 +605,7 @@ function updateStatistics(stats) {
                 <div class="stat-value">${stats.count}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon">📈</div>
+                <div class="stat-icon">⚖️</div>
                 <div class="stat-label">Priemerná teplota</div>
                 <div class="stat-value">${stats.avg} °C</div>
             </div>
@@ -577,7 +620,7 @@ function updateStatistics(stats) {
                 <div class="stat-value">${stats.max} °C</div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon">🔄</div>
+                <div class="stat-icon">⚙️</div>
                 <div class="stat-label">Priemerné PWM</div>
                 <div class="stat-value">${stats.pwm_avg !== undefined ? stats.pwm_avg : '-'} %</div>
             </div>
@@ -602,14 +645,14 @@ async function loadDeviceStatus() {
     }
 }
 
-function updateDeviceUI(status, connected, debugMode = false) {
+function updateDeviceUI(status, connected, debugMode = undefined) {
     const connectionSpan = document.getElementById('connection-status');
     const systemSpan = document.getElementById('system-status');
     const btnPowerOn = document.getElementById('btn-power-on');
     const btnPowerOff = document.getElementById('btn-power-off');
     const debugPanel = document.getElementById('debug-control-panel');
 
-    if (debugPanel) {
+    if (debugPanel && debugMode !== undefined) {
         debugPanel.style.display = debugMode ? 'block' : 'none';
     }
 
@@ -617,12 +660,12 @@ function updateDeviceUI(status, connected, debugMode = false) {
         connectionSpan.innerHTML = 'Pripojené';
         connectionSpan.className = 'status-badge status-connected';
         if (status === 'on') {
-            systemSpan.innerHTML = 'ZAPNUTÝ';
+            systemSpan.innerHTML = 'Zapnutý';
             systemSpan.className = 'status-badge status-on';
             btnPowerOn.disabled = true;
             btnPowerOff.disabled = false;
         } else {
-            systemSpan.innerHTML = 'VYPNUTÝ';
+            systemSpan.innerHTML = 'Vypnutý';
             systemSpan.className = 'status-badge status-off';
             btnPowerOn.disabled = false;
             btnPowerOff.disabled = true;
@@ -630,7 +673,7 @@ function updateDeviceUI(status, connected, debugMode = false) {
     } else {
         connectionSpan.innerHTML = 'Nepripojené';
         connectionSpan.className = 'status-badge status-disconnected';
-        systemSpan.innerHTML = 'VYPNUTÝ';
+        systemSpan.innerHTML = 'Vypnutý';
         systemSpan.className = 'status-badge status-off';
         btnPowerOn.disabled = true;
         btnPowerOff.disabled = true;
