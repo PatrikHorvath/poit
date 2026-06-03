@@ -18,11 +18,17 @@
         <div id="device-status">
           <div class="status-indicator">
             <span class="status-label">Pripojenie:</span>
-            <span id="connection-status" class="status-badge status-disconnected">Nepripojené</span>
+            <span
+              id="connection-status"
+              class="status-badge status-disconnected"
+              >Nepripojené</span
+            >
           </div>
           <div class="status-indicator">
             <span class="status-label">Stav systému:</span>
-            <span id="system-status" class="status-badge status-off">VYPNUTÝ</span>
+            <span id="system-status" class="status-badge status-off"
+              >VYPNUTÝ</span
+            >
           </div>
         </div>
       </div>
@@ -31,15 +37,60 @@
       <div class="card" id="control-card">
         <h2>Ovládanie systému</h2>
         <div class="control-buttons">
-          <button id="btn-power-on" class="btn btn-success" onclick="controlSystem('on')">ZAPNÚŤ SYSTÉM</button>
-          <button id="btn-power-off" class="btn btn-danger" onclick="controlSystem('off')" disabled>VYPNÚŤ SYSTÉM</button>
+          <button
+            id="btn-power-on"
+            class="btn btn-success"
+            onclick="controlSystem('on')"
+          >
+            ZAPNÚŤ SYSTÉM
+          </button>
+          <button
+            id="btn-power-off"
+            class="btn btn-danger"
+            onclick="controlSystem('off')"
+            disabled
+          >
+            VYPNÚŤ SYSTÉM
+          </button>
         </div>
 
         <hr />
 
         <div class="monitoring-controls">
-          <button id="btn-start-monitor" class="btn btn-primary" onclick="startMonitoring()">SLEDOVAŤ</button>
-          <button id="btn-stop-monitor" class="btn btn-secondary" onclick="stopMonitoring()" disabled>ZRUŠIŤ SLEDOVANIE</button>
+          <button
+            id="btn-start-monitor"
+            class="btn btn-primary"
+            onclick="startMonitoring()"
+          >
+            SLEDOVAŤ
+          </button>
+          <button
+            id="btn-stop-monitor"
+            class="btn btn-secondary"
+            onclick="stopMonitoring()"
+            disabled
+          >
+            ZRUŠIŤ SLEDOVANIE
+          </button>
+        </div>
+
+        <div id="debug-control-panel" style="display: none">
+          <hr />
+          <h3>Debug Možnosti</h3>
+          <div class="filter-group" style="margin-top: 10px">
+            <label for="debug-pwm-input">Manuálne Peltier PWM (%):</label>
+            <input
+              type="number"
+              id="debug-pwm-input"
+              min="0"
+              max="100"
+              value="0"
+              style="width: 80px"
+            />
+            <button class="btn-filter" onclick="sendDebugPwm()">
+              Nastaviť PWM
+            </button>
+          </div>
         </div>
       </div>
 
@@ -49,17 +100,30 @@
         <div class="live-status">
           <span class="status-badge monitoring-active">SLEDUJE SA</span>
           <div class="live-data">
-            <div class="live-temp">Aktuálna teplota: <strong id="last-temp">--</strong> °C</div>
+            <div class="live-temp">
+              Meraná teplota: <strong id="last-temp">--</strong> °C
+            </div>
             <div class="live-time">Čas: <strong id="last-time">--</strong></div>
           </div>
         </div>
 
         <!-- Prepínanie live vizualizácie -->
         <div class="view-switch">
-          <button class="view-btn active" onclick="switchLiveView('chart', event)">Graf</button>
-          <button class="view-btn" onclick="switchLiveView('table', event)">Tabuľka</button>
-          <button class="view-btn" onclick="switchLiveView('gauge', event)">Gauge</button>
-          <button class="btn-filter" onclick="downloadLiveDataJSON()">Stiahnuť JSON</button>
+          <button
+            class="view-btn active"
+            onclick="switchLiveView('chart', event)"
+          >
+            Graf
+          </button>
+          <button class="view-btn" onclick="switchLiveView('table', event)">
+            Tabuľka
+          </button>
+          <button class="view-btn" onclick="switchLiveView('gauge', event)">
+            Gauge
+          </button>
+          <button class="btn-filter" onclick="downloadLiveDataJSON()">
+            Stiahnuť JSON
+          </button>
         </div>
 
         <!-- Live Graf -->
@@ -86,10 +150,18 @@
         <div class="filter-controls">
           <div class="filter-group">
             <label>Rýchle filtre:</label>
-            <button class="btn-filter" onclick="loadDataForPeriod('hour')">Posledná hodina</button>
-            <button class="btn-filter" onclick="loadDataForPeriod('day')">Posledných 24h</button>
-            <button class="btn-filter" onclick="loadDataForPeriod('week')">Posledný týždeň</button>
-            <button class="btn-filter" onclick="loadDataForPeriod('month')">Posledný mesiac</button>
+            <button class="btn-filter" onclick="loadDataForPeriod('hour')">
+              Posledná hodina
+            </button>
+            <button class="btn-filter" onclick="loadDataForPeriod('day')">
+              Posledných 24h
+            </button>
+            <button class="btn-filter" onclick="loadDataForPeriod('week')">
+              Posledný týždeň
+            </button>
+            <button class="btn-filter" onclick="loadDataForPeriod('month')">
+              Posledný mesiac
+            </button>
           </div>
 
           <div class="filter-group">
@@ -97,15 +169,23 @@
             <input type="datetime-local" id="custom-from" />
             <span>→</span>
             <input type="datetime-local" id="custom-to" />
-            <button class="btn-filter" onclick="loadDataForPeriod('custom')">Načítať</button>
+            <button class="btn-filter" onclick="loadDataForPeriod('custom')">
+              Načítať
+            </button>
           </div>
         </div>
 
         <!-- Prepínanie historickej vizualizácie -->
         <div class="view-switch">
-          <button class="view-btn active" onclick="switchHistoryView('chart', event)">Graf</button>
-          <button class="view-btn" onclick="switchHistoryView('table', event)">Tabuľka</button>
-          <button class="view-btn" onclick="switchHistoryView('gauge', event)">Gauge</button>
+          <button
+            class="view-btn active"
+            onclick="switchHistoryView('chart', event)"
+          >
+            Graf
+          </button>
+          <button class="view-btn" onclick="switchHistoryView('table', event)">
+            Tabuľka
+          </button>
         </div>
 
         <!-- Historický Graf -->
@@ -118,15 +198,15 @@
           <div id="temperature-table" class="table-container"></div>
         </div>
 
-        <!-- Historický Gauge -->
+        <!-- Historický Gauge 
         <div id="history-gauge-view" class="view-content" style="display: none">
           <div class="gauges-container" id="gauges-container"></div>
         </div>
+        -->
 
         <!-- Štatistika -->
         <div id="statistics" class="statistics"></div>
       </div>
-
     </div>
     <script src="/static/script.js"></script>
   </body>

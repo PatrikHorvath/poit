@@ -19,11 +19,12 @@ RUN python3 -m pip install --upgrade pip
 RUN python3 -m pip install --no-cache-dir \
     flask \
     flask-socketio \
+    flask-cors \
+    cloup==0.13.0 \
     eventlet \
     mysql-connector-python \
-    cryptography \
-    configparser
-
+    cryptography
+    
 # SSH Setup
 RUN mkdir /var/run/sshd
 RUN useradd -m -s /bin/bash devuser && \

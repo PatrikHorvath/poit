@@ -24,3 +24,4 @@ mysql_data/
 !flask/**
 flask/instances/config.cfg
 .gitconfig
+flask/instances/static/files/backup.json

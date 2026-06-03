@@ -36,6 +36,7 @@ USE_DUMMY_DATA = True  # True = generuje náhodné dáta, False = číta z COM p
 SERIAL_PORT = "COM3"
 BAUD_RATE = 115200
 API_URL = "https://dietpi.tailfa8c79.ts.net/api/measurements"
+STATUS_URL = "https://dietpi.tailfa8c79.ts.net/api/device/status"
 WS_URL = "https://dietpi.tailfa8c79.ts.net"
 SECRET_KEY = os.getenv("SECRET_KEY")
 DEVICE_ID = "Arduino_Peltier_MiddleManComputer"
@@ -46,6 +47,7 @@ VERIFY_SSL = True
 sio = socketio.Client(ssl_verify=VERIFY_SSL)
 
 system_active = False
+ser_global = None
 
 
 @sio.event
@@ -56,6 +58,7 @@ def connect():
 @sio.on("registration_success")
 def on_registration_success(data):
     print("Registrácia zariadenia cez WebSocket prebehla úspešne.")
+    check_and_sync_initial_debug_state()
 
 
 @sio.on("registration_error")
@@ -66,7 +69,7 @@ def on_registration_error(data):
 
 @sio.on("control_command")
 def on_control_command(data):
-    global system_active
+    global system_active, ser_global
     print(f"Prijatý príkaz z backendu: {data}")
     command = data.get("command")
 
@@ -74,10 +77,50 @@ def on_control_command(data):
         if not system_active:
             print("Spúšťam zber dát na základe príkazu z backendu...")
             system_active = True
+            send_command_to_arduino({"command": "on"})
     elif command == "off":
         if system_active:
             print("Zastavujem zber dát na základe príkazu z backendu...")
             system_active = False
+            send_command_to_arduino({"command": "off"})
+    elif command == "set_pwm":
+        pwm_value = data.get("value")
+        print(f"Nastavujem manuálne PWM na: {pwm_value}%")
+        send_command_to_arduino({"command": "set_pwm", "value": pwm_value})
+
+
+def check_and_sync_initial_debug_state():
+    """Zistí aktuálny stav debug režimu z API a odošle ho do Arduina."""
+    try:
+        print("Zisťujem počiatočný stav debug režimu z API...")
+        response = requests.get(STATUS_URL, verify=VERIFY_SSL, timeout=5)
+        if response.status_code == 200:
+            status_data = response.json()
+            debug_mode = status_data.get("debug_mode", False)
+            print(f"Aktuálny debug režim na serveri: {debug_mode}")
+            send_command_to_arduino({"command": "debug_state", "enabled": debug_mode})
+        else:
+            print(f"Nepodarilo sa získať stav zariadenia z API: {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        print(f"Chyba pri komunikácii s API pre získanie stavu: {e}")
+
+
+def send_command_to_arduino(payload):
+    global ser_global
+    if USE_DUMMY_DATA:
+        print(f"[SIMULÁCIA ARDUINO] Odoslané do Arduina: {json.dumps(payload)}")
+        return
+
+    if ser_global and ser_global.is_open:
+        try:
+            json_command = json.dumps(payload) + "\n"
+            ser_global.write(json_command.encode("utf-8"))
+            ser_global.flush()
+            print(f"Odoslané do Arduina cez sériový port: {json_command.strip()}")
+        except SerialException as e:
+            print(f"Chyba pri zápise na sériový port: {e}")
+    else:
+        print("Chyba: Nie je možné odoslať príkaz, sériový port nie je otvorený.")
 
 
 def get_dummy_measurement():
@@ -90,19 +133,17 @@ def get_dummy_measurement():
 
 
 def main():
-    global system_active
+    global system_active, ser_global
     data_buffer = []
-    ser = None
 
     try:
-        sio.connect(WS_URL)
-
         if not USE_DUMMY_DATA:
-            ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+            ser_global = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
             print(f"Monitorujem port {SERIAL_PORT}...")
         else:
             print("Režim simulácie: Generujem dummy dáta...")
 
+        sio.connect(WS_URL)
         print("Čakám na príkaz 'on' z backendu pre spustenie merania...")
 
         while True:
@@ -118,8 +159,8 @@ def main():
                 time.sleep(1)
                 measurement = get_dummy_measurement()
             else:
-                if ser.in_waiting > 0:
-                    line = ser.readline().decode("utf-8").strip()
+                if ser_global.in_waiting > 0:
+                    line = ser_global.readline().decode("utf-8").strip()
                     try:
                         measurement = json.loads(line)
                     except json.JSONDecodeError:
@@ -141,8 +182,8 @@ def main():
     except KeyboardInterrupt:
         print("\nUkončujem program...")
     finally:
-        if ser and ser.is_open:
-            ser.close()
+        if ser_global and ser_global.is_open:
+            ser_global.close()
         sio.disconnect()
 
 

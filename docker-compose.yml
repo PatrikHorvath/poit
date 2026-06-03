@@ -12,6 +12,8 @@ services:
       - "2222:22"
       - "8888:5000"
     restart: unless-stopped
+    environment:
+      - TZ=Europe/Bratislava
     depends_on:
       - poit-mysql-db
     networks:
@@ -29,6 +31,7 @@ services:
       - PMA_HOST=poit-mysql-db
       - PMA_ARBITRARY=0
       - MYSQL_ROOT_PASSWORD=${SQL_ROOT_PWD}
+      - TZ=Europe/Bratislava
     networks:
       - poit-web-network
 
@@ -41,6 +44,7 @@ services:
       MYSQL_DATABASE: flask_db
       MYSQL_USER: flask
       MYSQL_PASSWORD: ${SQL_FLASK_PWD}
+      TZ: Europe/Bratislava
     volumes:
       - ./mysql_data:/var/lib/mysql
     networks:

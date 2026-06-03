@@ -6,9 +6,34 @@ import mysql.connector
 import configparser
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import warnings
 from flask_socketio import SocketIO, emit, join_room, leave_room
+
+BACKUP_DIR = "/home/devuser/flask/instances/static/files"
+FILE_PATH = os.path.join(BACKUP_DIR, "backup.json")
+LOCAL_TZ = timezone(timedelta(hours=2))
+DEBUG_MODE = True
+
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+active_session_cache = {"start_time": None, "recent_measurements": []}
+
+MAX_CACHE_SIZE = 50
+
+if os.path.exists(FILE_PATH):
+    try:
+        with open(FILE_PATH, "a") as f:
+            last_line = None
+            for line in f:
+                if line.strip():
+                    last_line = line
+            if last_line:
+                last_data = json.loads(last_line)
+                if last_data.get("type") == "session_start":
+                    active_session_cache["start_time"] = last_data.get("timestamp")
+    except Exception as e:
+        print(f"Error checking initial backup file status: {e}")
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="eventlet")
 
@@ -73,6 +98,7 @@ def handle_disconnect():
         print("Device disconnected")
 
         end_current_session()
+        end_backup_session()
 
         socketio.emit("device_status_update", {"status": "off", "connected": False})
 
@@ -93,12 +119,12 @@ def handle_register(data):
         "connected": True,
         "sid": request.sid,
         "status": "off",
-        "connected_at": datetime.now().isoformat(),
+        "connected_at": datetime.now(timezone.utc).isoformat(),
         "device_id": device_id,
     }
 
     print(f"Device {device_id} registered successfully")
-    emit("registration_success", {"status": "registered"})
+    emit("registration_success", {"status": "registered", "debug_mode": DEBUG_MODE})
     socketio.emit("device_status_update", {"status": "off", "connected": True})
 
 
@@ -119,9 +145,101 @@ def handle_leave_monitoring():
     emit("monitoring_confirmed", {"status": "inactive"})
 
 
+@socketio.on("set_peltier_pwm")
+def handle_set_peltier_pwm(data):
+    """Nastavenie PWM hodnoty ak je zapnutý debug mode"""
+    if not DEBUG_MODE:
+        emit("debug_error", {"error": "Debug mode is disabled"})
+        return False
+
+    if not device_info["connected"]:
+        emit("debug_error", {"error": "Device is not connected"})
+        return False
+
+    pwm_value = data.get("pwm")
+    if pwm_value is None:
+        emit("debug_error", {"error": "Missing pwm value"})
+        return False
+
+    try:
+        pwm_value = int(pwm_value)
+        if not (0 <= pwm_value <= 100):
+            emit("debug_error", {"error": "PWM must be between 0 and 100"})
+            return False
+    except ValueError:
+        emit("debug_error", {"error": "Invalid PWM value format"})
+        return False
+
+    socketio.emit(
+        "control_command",
+        {"command": "set_pwm", "value": pwm_value},
+        room=device_info["sid"],
+    )
+    print(f"Debug command: sent PWM {pwm_value}% to device {device_info['sid']}")
+    emit("debug_success", {"message": f"PWM nastavené na {pwm_value}%"})
+
+
 # ---------------------------------------------------------------
 #  API ENDPOINTY - pre ovládanie zariadenia a získavanie dát
 # ---------------------------------------------------------------
+
+
+# pozeranie aktualneho backup JSON suboru
+@app.route("/api/backup/download", methods=["GET"])
+def get_backup_file():
+    """Získať aktuálny JSON súbor zálohy"""
+    if not os.path.exists(FILE_PATH):
+        return jsonify({"sessions": []}), 200
+
+    sessions = []
+    current_session = None
+
+    try:
+        # Čítanie riadok po riadku na zabránenie preťaženiu pamäte RAM
+        with open(FILE_PATH, "r") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entry_type = entry.get("type")
+
+                    if entry_type == "session_start":
+                        if current_session:
+                            sessions.append(current_session)
+                        current_session = {
+                            "start_time": entry.get("timestamp"),
+                            "end_time": None,
+                            "measurements": [],
+                        }
+                    elif entry_type == "measurement":
+                        if not current_session:
+                            current_session = {
+                                "start_time": entry.get("timestamp"),
+                                "end_time": None,
+                                "measurements": [],
+                            }
+                        current_session["measurements"].append(
+                            {
+                                "temperature": entry.get("temperature"),
+                                "peltier_pwm": entry.get("peltier_pwm"),
+                                "timestamp": entry.get("timestamp"),
+                            }
+                        )
+                    elif entry_type == "session_end":
+                        if current_session:
+                            current_session["end_time"] = entry.get("timestamp")
+                            sessions.append(current_session)
+                            current_session = None
+                except json.JSONDecodeError:
+                    continue
+
+        if current_session:
+            sessions.append(current_session)
+
+        return jsonify({"sessions": sessions}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to read backup file: {str(e)}"}), 500
 
 
 # end point pre získanie aktuálneho stavu zariadenia, na zobrazenie na webstránke
@@ -134,38 +252,56 @@ def get_device_status():
                 "connected": device_info["connected"],
                 "status": device_info["status"],
                 "connected_at": device_info["connected_at"],
+                "debug_mode": DEBUG_MODE,
             }
         ),
         200,
     )
 
-##############################################################################################################################################################
-# endpoint pre historické dáta
+
 @app.route("/api/archive/<int:start_timestamp>/<int:end_timestamp>", methods=["GET"])
 def archived_data_filter(start_timestamp, end_timestamp):
-    print(start_timestamp, end_timestamp)
+    if start_timestamp > end_timestamp:
+        return (
+            jsonify({"error": "Start timestamp cannot be greater than end timestamp"}),
+            400,
+        )
+
     try:
-        start_dt = datetime.utcfromtimestamp(start_timestamp)
-        end_dt = datetime.utcfromtimestamp(end_timestamp)
+        start_dt = datetime.fromtimestamp(start_timestamp, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_timestamp, tz=timezone.utc)
 
         conn = get_db()
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT temperature, peltier_pwm, time_measured
             FROM temperature_measurements
             WHERE time_measured BETWEEN %s AND %s
             ORDER BY time_measured ASC
-        """, (start_dt, end_dt))
+        """,
+            (start_dt, end_dt),
+        )
 
         rows = cursor.fetchall()
 
         # Serializácia datetime na string
         temperatures = [
             {
-                "value": row["temperature"],
-                "pwm": row["peltier_pwm"],
-                "timestamp": row["time_measured"].isoformat()
+                "value": (
+                    float(row["temperature"])
+                    if row["temperature"] is not None
+                    else None
+                ),
+                "pwm": (
+                    int(row["peltier_pwm"]) if row["peltier_pwm"] is not None else None
+                ),
+                "timestamp": (
+                    row["time_measured"].isoformat()
+                    if isinstance(row["time_measured"], datetime)
+                    else row["time_measured"]
+                ),
             }
             for row in rows
         ]
@@ -173,36 +309,49 @@ def archived_data_filter(start_timestamp, end_timestamp):
         # Štatistiky
         stats = {}
         if temperatures:
-            values = [t["value"] for t in temperatures]
-            stats = {
-                "count": len(values),
-                "avg": round(sum(values) / len(values), 2),
-                "min": round(min(values), 2),
-                "max": round(max(values), 2),
-                "first": values[0],
-                "last": values[-1]
-            }
+            values = [t["value"] for t in temperatures if t["value"] is not None]
+            if values:
+                stats = {
+                    "count": len(values),
+                    "avg": round(sum(values) / len(values), 2),
+                    "min": round(min(values), 2),
+                    "max": round(max(values), 2),
+                    "first": values[0],
+                    "last": values[-1],
+                }
 
-        return jsonify({
-            "temperatures": temperatures,
-            "stats": stats,
-            "from": start_dt.isoformat(),
-            "to": end_dt.isoformat()
-        }), 200
+        return (
+            jsonify(
+                {
+                    "temperatures": temperatures,
+                    "stats": stats,
+                    "from": start_dt.isoformat(),
+                    "to": end_dt.isoformat(),
+                }
+            ),
+            200,
+        )
 
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
     finally:
-        cursor.close()
-        conn.close()
-##############################################################################################################################################################
+        if "cursor" in locals():
+            cursor.close()
+        if "conn" in locals():
+            conn.close()
+
 
 # endpoint pre prenesenie príkazu z webstránky do zariadenia (zapnúť/vypnúť)
 @app.route("/api/device/control", methods=["POST"])
 def control_device():
     global device_info
     data = request.get_json()
+    if not data or "command" not in data:
+        return jsonify({"error": "Missing command parameter"}), 400
+
     command = data.get("command")
+    if command not in ["on", "off"]:
+        return jsonify({"error": "Invalid command value"}), 400
 
     if not device_info["connected"]:
         return jsonify({"error": "Zariadenie nie je pripojené"}), 404
@@ -211,8 +360,10 @@ def control_device():
 
     if command == "on":
         start_new_session_db()
+        start_new_backup_session()
     elif command == "off":
         end_current_session()
+        end_backup_session()
 
     device_info["status"] = command
     socketio.emit("device_status_update", {"status": command, "connected": True})
@@ -232,6 +383,7 @@ def add_measurements():
     payload = request.get_json()
     if not payload:
         return jsonify({"error": "Empty payload"}), 400
+
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -241,28 +393,47 @@ def add_measurements():
             VALUES (%s, %s, %s)
         """
         broadcast_data = []
-        if isinstance(payload, list):
-            for item in payload:
-                temp = item.get("temperature")
-                pwm = item.get("pwm_peltier")
-                timestamp = item.get("timestamp")
+        items = payload if isinstance(payload, list) else [payload]
+
+        for item in items:
+            try:
+                temp = (
+                    float(item.get("temperature"))
+                    if item.get("temperature") is not None
+                    else None
+                )
+                pwm = (
+                    int(item.get("pwm_peltier"))
+                    if item.get("pwm_peltier") is not None
+                    else None
+                )
+                ts_raw = item.get("timestamp")
+
+                if isinstance(ts_raw, (int, float)):
+                    timestamp = datetime.fromtimestamp(ts_raw, tz=timezone.utc)
+                else:
+                    timestamp = ts_raw
+
                 cursor.execute(query, (temp, pwm, timestamp))
-                broadcast_data.append({
-                    "id": cursor.lastrowid,
-                    "value": temp,
-                    "pwm": pwm,
-                    "timestamp": timestamp
-                })
-        else:
-            temp = payload.get("temperature")
-            pwm = payload.get("pwm_peltier")
-            timestamp = payload.get("timestamp")
-            cursor.execute(query, (temp, pwm, timestamp))
-            broadcast_data.append({
-                "value": temp,
-                "pwm": pwm,
-                "timestamp": timestamp
-            })
+
+                ts_str = (
+                    timestamp.isoformat()
+                    if isinstance(timestamp, datetime)
+                    else str(timestamp)
+                )
+                append_measurement_to_backup(temp, pwm, ts_str)
+
+                broadcast_data.append(
+                    {
+                        "id": cursor.lastrowid,
+                        "value": temp,
+                        "pwm": pwm,
+                        "timestamp": ts_str,
+                    }
+                )
+            except (ValueError, TypeError):
+                continue
+
         conn.commit()
         # broadcast do websocket room
         for data_point in broadcast_data:
@@ -271,13 +442,68 @@ def add_measurements():
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
     finally:
-        cursor.close()
-        conn.close()
+        if "cursor" in locals():
+            cursor.close()
+        if "conn" in locals():
+            conn.close()
 
 
 # ---------------------------------------------------------------
 #  POMOCNÉ FUNKCIE
 # ---------------------------------------------------------------
+
+
+def start_new_backup_session():
+    global active_session_cache
+    # Zmena z timezone.utc na LOCAL_TZ
+    now_str = datetime.now(LOCAL_TZ).isoformat()
+
+    active_session_cache["start_time"] = now_str
+    active_session_cache["recent_measurements"] = []
+
+    try:
+        with open(FILE_PATH, "a") as f:
+            f.write(json.dumps({"type": "session_start", "timestamp": now_str}) + "\n")
+    except Exception as e:
+        print(f"Error writing session start to backup: {e}")
+
+
+def end_backup_session():
+    global active_session_cache
+    # Zmena z timezone.utc na LOCAL_TZ
+    now_str = datetime.now(LOCAL_TZ).isoformat()
+    try:
+        with open(FILE_PATH, "a") as f:
+            f.write(json.dumps({"type": "session_end", "timestamp": now_str}) + "\n")
+    except Exception as e:
+        print(f"Error writing session end to backup: {e}")
+
+    active_session_cache["start_time"] = None
+    active_session_cache["recent_measurements"] = []
+
+
+def append_measurement_to_backup(temp, pwm, timestamp_str):
+    global active_session_cache
+    if not active_session_cache["start_time"]:
+        start_new_backup_session()
+
+    measurement_node = {
+        "type": "measurement",
+        "temperature": temp,
+        "peltier_pwm": pwm,
+        "timestamp": timestamp_str,
+    }
+
+    # Udržiavanie obmedzenej cache vyrovnávacej pamäte
+    active_session_cache["recent_measurements"].append(measurement_node)
+    if len(active_session_cache["recent_measurements"]) > MAX_CACHE_SIZE:
+        active_session_cache["recent_measurements"].pop(0)
+
+    try:
+        with open(FILE_PATH, "a") as f:
+            f.write(json.dumps(measurement_node) + "\n")
+    except Exception as e:
+        print(f"Error appending measurement to backup: {e}")
 
 
 def start_new_session_db():
@@ -291,8 +517,10 @@ def start_new_session_db():
     except mysql.connector.Error as err:
         print(f"Database error pri spúšťaní relácie: {err}")
     finally:
-        cursor.close()
-        conn.close()
+        if "cursor" in locals():
+            cursor.close()
+        if "conn" in locals():
+            conn.close()
 
 
 def end_current_session():
@@ -306,8 +534,10 @@ def end_current_session():
     except mysql.connector.Error as err:
         print(f"Database error: {err}")
     finally:
-        cursor.close()
-        conn.close()
+        if "cursor" in locals():
+            cursor.close()
+        if "conn" in locals():
+            conn.close()
 
 
 # ---------------------------------------------------------------
@@ -342,15 +572,36 @@ def get_current_session_data():
         """,
             (session_id,),
         )
-        measurements = cursor.fetchall()
+        rows = cursor.fetchall()
+
+        measurements = [
+            {
+                "temperature": (
+                    float(row["temperature"])
+                    if row["temperature"] is not None
+                    else None
+                ),
+                "peltier_pwm": (
+                    int(row["peltier_pwm"]) if row["peltier_pwm"] is not None else None
+                ),
+                "time_measured": (
+                    row["time_measured"].isoformat()
+                    if isinstance(row["time_measured"], datetime)
+                    else row["time_measured"]
+                ),
+            }
+            for row in rows
+        ]
 
         return jsonify({"session_id": session_id, "measurements": measurements}), 200
 
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
     finally:
-        cursor.close()
-        conn.close()
+        if "cursor" in locals():
+            cursor.close()
+        if "conn" in locals():
+            conn.close()
 
 
 @app.route("/")
