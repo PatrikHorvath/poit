@@ -31,21 +31,22 @@ import socketio
 
 load_dotenv()
 
-# --- KONFIGURÁCIA ---
-USE_DUMMY_DATA = True  # True = generuje náhodné dáta, False = číta z COM portu
-SERIAL_PORT = "COM3"
+USE_DUMMY_DATA = False  # True = generuje náhodné dáta, False = číta z COM portu
+SERIAL_PORT = "COM5"
 BAUD_RATE = 115200
 API_URL = "https://dietpi.tailfa8c79.ts.net/api/measurements"
 STATUS_URL = "https://dietpi.tailfa8c79.ts.net/api/device/status"
 WS_URL = "https://dietpi.tailfa8c79.ts.net"
 SECRET_KEY = os.getenv("SECRET_KEY")
 DEVICE_ID = "Arduino_Peltier_MiddleManComputer"
-SEND_THRESHOLD = 10
-
+SEND_THRESHOLD = 1
 VERIFY_SSL = True
 
-sio = socketio.Client(ssl_verify=VERIFY_SSL)
+THINGSBOARD_TELEMETRY_URL = (
+    "http://eu.thingsboard.cloud/api/v1/hz7h7ollbxpxwy95qnvi/telemetry"
+)
 
+sio = socketio.Client(ssl_verify=VERIFY_SSL)
 system_active = False
 ser_global = None
 
@@ -107,16 +108,28 @@ def check_and_sync_initial_debug_state():
 
 def send_command_to_arduino(payload):
     global ser_global
+    command = payload.get("command")
+    cmd_str = ""
+
+    if command == "on":
+        cmd_str = "ON\n"
+    elif command == "off":
+        cmd_str = "OFF\n"
+    elif command == "debug_state":
+        state = 1 if payload.get("enabled", False) else 0
+        cmd_str = f"DEBUG:{state}\n"
+    elif command == "set_pwm":
+        cmd_str = f"PWM:{payload.get('value', 0)}\n"
+
     if USE_DUMMY_DATA:
-        print(f"[SIMULÁCIA ARDUINO] Odoslané do Arduina: {json.dumps(payload)}")
+        print(f"[SIMULÁCIA ARDUINO] Odoslané do Arduina: {cmd_str.strip()}")
         return
 
     if ser_global and ser_global.is_open:
         try:
-            json_command = json.dumps(payload) + "\n"
-            ser_global.write(json_command.encode("utf-8"))
+            ser_global.write(cmd_str.encode("utf-8"))
             ser_global.flush()
-            print(f"Odoslané do Arduina cez sériový port: {json_command.strip()}")
+            print(f"Odoslané do Arduina cez sériový port: {cmd_str.strip()}")
         except SerialException as e:
             print(f"Chyba pri zápise na sériový port: {e}")
     else:
@@ -153,19 +166,28 @@ def main():
                     data_buffer.clear()
                 continue
 
-            line = None
-
             if USE_DUMMY_DATA:
                 time.sleep(1)
                 measurement = get_dummy_measurement()
             else:
                 if ser_global.in_waiting > 0:
                     line = ser_global.readline().decode("utf-8").strip()
-                    try:
-                        measurement = json.loads(line)
-                    except json.JSONDecodeError:
-                        if line:
-                            print(f"Chyba formátu (neplatný JSON): {line}")
+                    if line.startswith("DATA:"):
+                        try:
+                            parts = line.split(":", 1)[1].split(",")
+                            temp_val = float(parts[0])
+                            pwm_val = int(parts[1])
+                            measurement = {
+                                "timestamp": datetime.now().strftime(
+                                    "%Y-%m-%d %H:%M:%S"
+                                ),
+                                "temperature": temp_val,
+                                "pwm_peltier": pwm_val,
+                            }
+                        except (ValueError, IndexError):
+                            print(f"Chyba formátu dát z Arduina: {line}")
+                            continue
+                    else:
                         continue
                 else:
                     continue
@@ -175,6 +197,7 @@ def main():
 
             if len(data_buffer) >= SEND_THRESHOLD:
                 send_to_api(data_buffer)
+                send_to_thingsboard(data_buffer)
                 data_buffer.clear()
 
     except SerialException as e:
@@ -189,7 +212,7 @@ def main():
 
 def send_to_api(payload):
     try:
-        print(f"Odosielam {len(payload)} záznamov na API...")
+        print(f"Odosielam {len(payload)} záznamov na interné API...")
         response = requests.post(
             API_URL,
             json=payload,
@@ -201,12 +224,46 @@ def send_to_api(payload):
             print("Dáta boli úspešne uložené do databázy.")
         else:
             print(f"API vrátilo chybu: {response.status_code} - {response.text}")
-
     except requests.exceptions.RequestException as e:
         print(f"Nepodarilo sa spojiť s API: {e}")
 
 
-# TODO: pridať prenášanie príkazu on/off do Arduina cez sériový port
+def send_to_thingsboard(payload_buffer):
+    try:
+        print(f"Odosielam {len(payload_buffer)} záznamov na ThingsBoard...")
+
+        formatted_telemetry = []
+        for entry in payload_buffer:
+            try:
+                dt = datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S")
+                ts_ms = int(dt.timestamp() * 1000)
+            except ValueError:
+                ts_ms = int(time.time() * 1000)
+
+            formatted_telemetry.append(
+                {
+                    "ts": ts_ms,
+                    "values": {
+                        "temperature": entry["temperature"],
+                        "pwm_peltier": entry["pwm_peltier"],
+                    },
+                }
+            )
+
+        response = requests.post(
+            THINGSBOARD_TELEMETRY_URL,
+            json=formatted_telemetry,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+
+        if response.status_code in [200, 201]:
+            print("Dáta boli úspešne odoslané do ThingsBoard.")
+        else:
+            print(f"ThingsBoard vrátil chybu: {response.status_code} - {response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"Nepodarilo sa spojiť s ThingsBoard: {e}")
+
 
 if __name__ == "__main__":
     main()
