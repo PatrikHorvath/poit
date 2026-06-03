@@ -73,6 +73,25 @@
             ZRUŠIŤ SLEDOVANIE
           </button>
         </div>
+
+        <div id="debug-control-panel" style="display: none">
+          <hr />
+          <h3>Debug Možnosti</h3>
+          <div class="filter-group" style="margin-top: 10px">
+            <label for="debug-pwm-input">Manuálne Peltier PWM (%):</label>
+            <input
+              type="number"
+              id="debug-pwm-input"
+              min="0"
+              max="100"
+              value="0"
+              style="width: 80px"
+            />
+            <button class="btn-filter" onclick="sendDebugPwm()">
+              Nastaviť PWM
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- ============ LIVE MONITORING PANEL ============ -->

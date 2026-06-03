@@ -13,6 +13,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 BACKUP_DIR = "/home/devuser/flask/instances/static/files"
 FILE_PATH = os.path.join(BACKUP_DIR, "backup.json")
 LOCAL_TZ = timezone(timedelta(hours=2))
+DEBUG_MODE = True
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
@@ -123,7 +124,7 @@ def handle_register(data):
     }
 
     print(f"Device {device_id} registered successfully")
-    emit("registration_success", {"status": "registered"})
+    emit("registration_success", {"status": "registered", "debug_mode": DEBUG_MODE})
     socketio.emit("device_status_update", {"status": "off", "connected": True})
 
 
@@ -142,6 +143,40 @@ def handle_leave_monitoring():
     leave_room("monitoring")
     print(f"Client {request.sid} left monitoring room")
     emit("monitoring_confirmed", {"status": "inactive"})
+
+
+@socketio.on("set_peltier_pwm")
+def handle_set_peltier_pwm(data):
+    """Nastavenie PWM hodnoty ak je zapnutý debug mode"""
+    if not DEBUG_MODE:
+        emit("debug_error", {"error": "Debug mode is disabled"})
+        return False
+
+    if not device_info["connected"]:
+        emit("debug_error", {"error": "Device is not connected"})
+        return False
+
+    pwm_value = data.get("pwm")
+    if pwm_value is None:
+        emit("debug_error", {"error": "Missing pwm value"})
+        return False
+
+    try:
+        pwm_value = int(pwm_value)
+        if not (0 <= pwm_value <= 100):
+            emit("debug_error", {"error": "PWM must be between 0 and 100"})
+            return False
+    except ValueError:
+        emit("debug_error", {"error": "Invalid PWM value format"})
+        return False
+
+    socketio.emit(
+        "control_command",
+        {"command": "set_pwm", "value": pwm_value},
+        room=device_info["sid"],
+    )
+    print(f"Debug command: sent PWM {pwm_value}% to device {device_info['sid']}")
+    emit("debug_success", {"message": f"PWM nastavené na {pwm_value}%"})
 
 
 # ---------------------------------------------------------------
@@ -217,6 +252,7 @@ def get_device_status():
                 "connected": device_info["connected"],
                 "status": device_info["status"],
                 "connected_at": device_info["connected_at"],
+                "debug_mode": DEBUG_MODE,
             }
         ),
         200,

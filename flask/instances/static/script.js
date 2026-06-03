@@ -38,6 +38,14 @@ socket.on('monitoring_confirmed', (data) => {
     }
 });
 
+socket.on('debug_error', (data) => {
+    showNotification(`Chyba: ${data.error}`, 'error');
+});
+
+socket.on('debug_success', (data) => {
+    showNotification(data.message, 'success');
+});
+
 socket.on('live_temperature', (data) => {
     if (!monitoringActive) return;
 
@@ -71,6 +79,18 @@ async function controlSystem(command) {
     } catch (err) {
         showNotification(`Chyba: ${err.message}`, 'error');
     }
+}
+
+function sendDebugPwm() {
+    const input = document.getElementById('debug-pwm-input');
+    const pwmValue = parseInt(input.value, 10);
+
+    if (isNaN(pwmValue) || pwmValue < 0 || pwmValue > 100) {
+        showNotification('Zadajte platnú hodnotu PWM medzi 0 a 100', 'error');
+        return;
+    }
+
+    socket.emit('set_peltier_pwm', { pwm: pwmValue });
 }
 
 // ============ SLEDOVANIE ============
@@ -576,17 +596,22 @@ async function loadDeviceStatus() {
     try {
         const response = await fetch(`${API}/api/device/status`);
         const data = await response.json();
-        updateDeviceUI(data.status, data.connected);
+        updateDeviceUI(data.status, data.connected, data.debug_mode);
     } catch (err) {
         console.error('Error loading device status:', err);
     }
 }
 
-function updateDeviceUI(status, connected) {
+function updateDeviceUI(status, connected, debugMode = false) {
     const connectionSpan = document.getElementById('connection-status');
     const systemSpan = document.getElementById('system-status');
     const btnPowerOn = document.getElementById('btn-power-on');
     const btnPowerOff = document.getElementById('btn-power-off');
+    const debugPanel = document.getElementById('debug-control-panel');
+
+    if (debugPanel) {
+        debugPanel.style.display = debugMode ? 'block' : 'none';
+    }
 
     if (connected) {
         connectionSpan.innerHTML = 'Pripojené';
