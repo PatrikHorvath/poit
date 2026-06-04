@@ -19,6 +19,8 @@ mysql_data/
 .profile
 .bash_profile
 .bash_history
+latex
+latex/**
 
 !flask
 !flask/**
