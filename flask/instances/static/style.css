@@ -1,0 +1,515 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+h1 {
+  color: white;
+  text-align: center;
+  margin-bottom: 30px;
+  font-size: 2.5em;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+h2 {
+  color: #333;
+  margin-bottom: 20px;
+  font-size: 1.5em;
+}
+
+.card {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  margin-bottom: 25px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  /* transition: transform 0.3s; */
+}
+
+/* .card:hover {
+  transform: translateY(-2px);
+} */
+
+/* Status indikátory */
+.status-indicator {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  margin: 5px 0;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.status-label {
+  font-weight: bold;
+  color: #555;
+}
+
+.status-badge {
+  padding: 5px 15px;
+  border-radius: 20px;
+  font-weight: bold;
+}
+
+.status-connected {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-disconnected {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-on {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-off {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.monitoring-active {
+  background: #cce5ff;
+  color: #004085;
+}
+
+/* Tlačidlá */
+#btn-download-history {
+  border: 2px solid #b0c7e4;
+}
+
+.control-buttons,
+.monitoring-controls {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+}
+
+.btn {
+  padding: 12px 30px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #4caf50, #45a049);
+  color: white;
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #f44336, #da190b);
+  color: white;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #2196f3, #0b7dda);
+  color: white;
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #9e9e9e, #757575);
+  color: white;
+}
+
+
+.btn-light-danger {
+    background-color: #f16f33;
+    color: white;
+    border: none;
+}
+
+.btn-light-danger:hover:not(:disabled) {
+    background-color: #f16f33;
+}
+
+.btn-light-danger:disabled {
+    background-color: rgb(236, 156, 102);
+    cursor: not-allowed;
+}
+
+
+/* Filtre */
+.filter-controls {
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 10px;
+}
+
+.filter-group {
+  margin-bottom: 15px;
+}
+
+.filter-group label {
+  display: inline-block;
+  margin-right: 10px;
+  font-weight: bold;
+  color: #555;
+}
+
+.btn-filter {
+  background: #e0e0e0;
+  border: none;
+  padding: 8px 15px;
+  margin: 0 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-filter:hover {
+  background: #2196f3;
+  color: white;
+  transform: translateY(-1px);
+}
+
+input[type="datetime-local"] {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  margin: 0 5px;
+}
+
+/* Prepínanie view */
+.view-switch {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0px 5px 0;
+  justify-content: center;
+}
+
+.view-btn {
+  padding: 10px 20px;
+  background: #f0f0f0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.view-btn.active {
+  background: #2196f3;
+  color: white;
+}
+
+.view-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* Graf */
+#temperature-chart {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.history-chart-container {
+  position: relative;
+  width: 100%;
+  height: 50vh;
+}
+
+/* Tabuľka */
+.table-container {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.data-table th {
+  background: #f8f9fa;
+  font-weight: bold;
+  position: sticky;
+  top: 0;
+}
+
+.data-table tr:hover {
+  background: #f5f5f5;
+}
+
+/* Gauge */
+.gauge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.gauge-card {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.gauge-card h3 {
+  margin-bottom: 15px;
+  font-size: 1.1em;
+  color: #555;
+}
+
+.gauge-value-large {
+  font-size: 3em;
+  font-weight: bold;
+  margin: 15px 0;
+}
+
+.gauge-value {
+  font-size: 2em;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+.gauge-bar {
+  background: #e0e0e0;
+  height: 30px;
+  border-radius: 15px;
+  position: relative;
+  overflow: visible;
+}
+
+.gauge-fill {
+  height: 100%;
+  transition: width 0.5s ease;
+}
+
+
+.gauge-marker {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 3px;
+    background: #d32f2f;
+    transform: translateX(-50%);
+    z-index: 2;
+    border-radius: 2px;
+    box-shadow: 0 0 4px rgba(211, 47, 47, 0.6);
+}
+
+.gauge-marker-label {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    font-weight: bold;
+    color: #d32f2f;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.gauge-values-pair {
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.gauge-value-item {
+    text-align: center;
+}
+
+.gauge-value-item h3 {
+    margin: 0 0 4px 0;
+    /* zachová tvoje existujúce štýly pre h3 */
+}
+
+.gauge-value-setpoint {
+    color: #d32f2f;
+}
+
+/* Štatistiky */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.stat-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.stat-icon {
+  font-size: 2em;
+  margin-bottom: 10px;
+}
+
+.stat-label {
+  font-size: 0.9em;
+  opacity: 0.9;
+  margin-bottom: 5px;
+}
+
+.stat-value {
+  font-size: 1.5em;
+  font-weight: bold;
+}
+
+/* Live monitoring */
+.live-status {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+}
+
+.live-data {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 15px;
+}
+
+.live-temp {
+  font-size: 1.5em;
+}
+
+.live-temp strong {
+  font-size: 2em;
+  color: #ffd700;
+}
+
+/* Notifikácie */
+.notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 15px 20px;
+  border-radius: 8px;
+  color: white;
+  font-weight: bold;
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out;
+}
+
+.notification-success {
+  background: #4caf50;
+}
+
+.notification-error {
+  background: #f44336;
+}
+
+.notification-info {
+  background: #2196f3;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+hr {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid #e0e0e0;
+}
+
+.alert {
+  padding: 15px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.alert-info {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.setpoint-controls input[type="number"],
+#debug-pwm-input {
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    padding: 6px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    text-align: center;
+    outline: none;
+    background-color: #fff;
+    width: 90px;
+    transition: border-color 0.15s ease;
+    -moz-appearance: textfield;
+}
+
+.setpoint-controls input[type="number"]:hover,
+#debug-pwm-input:hover {
+    border-color: #9ca3af;
+}
+
+.setpoint-controls input[type="number"]:focus,
+#debug-pwm-input:focus {
+    border-color: #6b7280;
+}
+
+.setpoint-controls input[type="number"]::-webkit-outer-spin-button,
+.setpoint-controls input[type="number"]::-webkit-inner-spin-button,
+#debug-pwm-input::-webkit-outer-spin-button,
+#debug-pwm-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
