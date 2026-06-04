@@ -13,6 +13,8 @@ let historyChart = null;
 let currentLiveView = 'chart';
 let currentHistoryView = 'chart';
 
+let currentSetpoint = null;
+
 // ============ SOCKET EVENTY ============
 
 socket.on('connect', () => {
@@ -49,6 +51,7 @@ socket.on('debug_success', (data) => {
 socket.on('live_temperature', (data) => {
     if (!monitoringActive) return;
 
+    data.setpoint = currentSetpoint;  // <-- pridané
     liveTemperatures.push(data);
     updateLiveDisplay(data.value, data.timestamp);
 
@@ -57,13 +60,27 @@ socket.on('live_temperature', (data) => {
     }
 
     if (currentLiveView === 'chart') {
-        addDataToLiveChart(data.value, data.pwm, data.timestamp);
+        addDataToLiveChart(data.value, data.pwm, data.setpoint, data.timestamp);  // <-- nový parameter
     } else if (currentLiveView === 'table') {
         updateLiveTable(liveTemperatures);
     } else if (currentLiveView === 'gauge') {
         updateLiveGauge(liveTemperatures);
     }
 });
+
+socket.on('setpoint_error', (data) => {
+    showNotification(`Chyba: ${data.error}`, 'error');
+});
+
+socket.on('setpoint_success', (data) => {
+    showNotification(data.message, 'success');
+});
+
+socket.on('setpoint_update', (data) => {
+    currentSetpoint = data.setpoint;
+});
+
+
 
 // ============ ZAPNUTIE/VYPNUTIE SYSTÉMU ============
 
@@ -85,6 +102,46 @@ async function controlSystem(command) {
     }
 }
 
+async function disconnectSocket() {
+    try {
+        // Najprv vypnúť systém cez API endpoint
+        const response = await fetch(`${API}/api/device/control`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'off' })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            showNotification(data.message, 'success');
+        } else {
+            showNotification(`Chyba pri vypínaní: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        showNotification(`Chyba pri vypínaní: ${err.message}`, 'error');
+    }
+
+    // Potom ukončiť socket spojenie
+    if (monitoringActive) {
+        socket.emit('leave_monitoring');
+        monitoringActive = false;
+    }
+
+    socket.disconnect();
+    showNotification('Spojenie ukončené', 'info');
+
+    // Aktualizovať UI - všetko zablokovať
+    document.getElementById('btn-power-on').disabled = true;
+    document.getElementById('btn-power-off').disabled = true;
+    document.getElementById('btn-start-monitor').disabled = true;
+    document.getElementById('btn-stop-monitor').disabled = true;
+    document.getElementById('btn-disconnect').disabled = true;
+
+    const connectionSpan = document.getElementById('connection-status');
+    connectionSpan.innerHTML = 'Odpojené';
+    connectionSpan.className = 'status-badge status-disconnected';
+}
+
 function sendDebugPwm() {
     const input = document.getElementById('debug-pwm-input');
     const pwmValue = parseInt(input.value, 10);
@@ -103,10 +160,11 @@ async function startMonitoring() {
     liveTemperatures = [];
     document.getElementById('live-view-switch').style.display = 'none';
     if (liveChart) {
-        liveChart.data.labels = [];
-        liveChart.data.datasets[0].data = [];
-        liveChart.data.datasets[1].data = [];
-        liveChart.update();
+    liveChart.data.labels = [];
+    liveChart.data.datasets[0].data = [];
+    liveChart.data.datasets[1].data = [];
+    liveChart.data.datasets[2].data = [];
+    liveChart.update();
     }
     socket.emit('join_monitoring');
     showNotification('Monitorovanie spustené', 'success');
@@ -185,11 +243,13 @@ function updateLiveChartFull(temperatures) {
     const labels = temperatures.map(t => new Date(t.timestamp).toLocaleTimeString());
     const tempValues = temperatures.map(t => t.value);
     const pwmValues = temperatures.map(t => t.pwm);
+    const setpointValues = temperatures.map(t => t.setpoint);  // <-- pridané
 
     if (liveChart) {
         liveChart.data.labels = labels;
         liveChart.data.datasets[0].data = tempValues;
         liveChart.data.datasets[1].data = pwmValues;
+        liveChart.data.datasets[2].data = setpointValues;  // <-- pridané
         liveChart.update();
     } else {
         liveChart = new Chart(ctx, {
@@ -220,6 +280,20 @@ function updateLiveChartFull(temperatures) {
                         tension: 0.3,
                         fill: false,
                         yAxisID: 'y1'
+                    },
+                    {
+                        label: 'Želaná hodnota (°C)',
+                        data: setpointValues,
+                        borderColor: 'rgb(76, 175, 80)',
+                        borderDash: [6, 4],
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        tension: 0,
+                        stepped: true,
+                        fill: false,
+                        spanGaps: false,
+                        yAxisID: 'y'
                     }
                 ]
             },
@@ -228,10 +302,9 @@ function updateLiveChartFull(temperatures) {
     }
 }
 
-function addDataToLiveChart(temperature, pwm, timestamp) {
+function addDataToLiveChart(temperature, pwm, setpoint, timestamp) {
     if (currentLiveView !== 'chart') return;
 
-    const ctx = document.getElementById('live-temperature-chart').getContext('2d');
     const newLabel = new Date(timestamp).toLocaleTimeString();
 
     if (!liveChart) {
@@ -242,11 +315,13 @@ function addDataToLiveChart(temperature, pwm, timestamp) {
     liveChart.data.labels.push(newLabel);
     liveChart.data.datasets[0].data.push(temperature);
     liveChart.data.datasets[1].data.push(pwm);
+    liveChart.data.datasets[2].data.push(setpoint);
 
     if (liveChart.data.labels.length > 100) {
         liveChart.data.labels.shift();
         liveChart.data.datasets[0].data.shift();
         liveChart.data.datasets[1].data.shift();
+        liveChart.data.datasets[2].data.shift();
     }
 
     liveChart.update();
@@ -272,24 +347,45 @@ function updateLiveGauge(temperatures) {
     const currentTemp = latest.value !== undefined && latest.value !== null ? latest.value.toFixed(1) : '0.0';
     const currentPwm = latest.pwm !== undefined && latest.pwm !== null ? latest.pwm.toFixed(0) : '0';
 
+    const hasSetpoint = currentSetpoint !== null && currentSetpoint !== undefined;
+
+    const setpointMarker = hasSetpoint
+    ? `<div class="gauge-marker" style="left: ${Math.min(Math.max((currentSetpoint / 50) * 100, 0), 100)}%;"></div>`
+    : '';
+
+    const setpointValueDisplay = hasSetpoint
+        ? `<div class="gauge-setpoint-value">Žel.: ${currentSetpoint.toFixed(1)}°C</div>`
+        : '';
+
     container.innerHTML = `
-        <div class="gauge-grid">
-            <div class="gauge-card">
-                <h3>Aktuálna teplota</h3>
-                <div class="gauge-value-large">${currentTemp}°C</div>
-                <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${(currentTemp / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #4caf50);"></div>
+    <div class="gauge-grid">
+        <div class="gauge-card">
+            <div class="gauge-values-pair">
+                <div class="gauge-value-item">
+                    <h3>Aktuálna teplota</h3>
+                    <div class="gauge-value-large">${currentTemp}°C</div>
                 </div>
+                ${hasSetpoint ? `
+                    <div class="gauge-value-item">
+                        <h3>Želaná hodnota</h3>
+                        <div class="gauge-value-large gauge-value-setpoint">${currentSetpoint.toFixed(1)}°C</div>
+                    </div>
+                ` : ''}
             </div>
-            <div class="gauge-card">
-                <h3>Aktuálny PWM výkon</h3>
-                <div class="gauge-value-large">${currentPwm}%</div>
-                <div class="gauge-bar">
-                    <div class="gauge-fill" style="width: ${currentPwm}%; background: linear-gradient(90deg, #ff9800, #f44336);"></div>
-                </div>
+            <div class="gauge-bar">
+                <div class="gauge-fill" style="width: ${(currentTemp / 50) * 100}%; background: linear-gradient(90deg, #2196f3, #4caf50);"></div>
+                ${setpointMarker}
             </div>
         </div>
-    `;
+        <div class="gauge-card">
+            <h3>Aktuálny PWM výkon</h3>
+            <div class="gauge-value-large">${currentPwm}%</div>
+            <div class="gauge-bar">
+                <div class="gauge-fill" style="width: ${currentPwm}%; background: linear-gradient(90deg, #ff9800, #f44336);"></div>
+            </div>
+        </div>
+    </div>
+`;
 }
 
 // ============ HISTORICKÁ VIZUALIZÁCIA ============
@@ -703,6 +799,18 @@ function showNotification(message, type) {
     }, 3000);
 }
 
+
+function sendSetpoint() {
+    const input = document.getElementById('setpoint-input');
+    const setpointValue = parseFloat(input.value);
+
+    if (isNaN(setpointValue)) {
+        showNotification('Zadajte platnú hodnotu želanej teploty', 'error');
+        return;
+    }
+
+    socket.emit('set_setpoint', { setpoint: setpointValue });
+}
 // ============ INICIALIZÁCIA ============
 
 document.addEventListener('DOMContentLoaded', () => {
