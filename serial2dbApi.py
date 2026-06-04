@@ -88,6 +88,10 @@ def on_control_command(data):
         pwm_value = data.get("value")
         print(f"Nastavujem manuálne PWM na: {pwm_value}%")
         send_command_to_arduino({"command": "set_pwm", "value": pwm_value})
+    elif command == "set_setpoint":
+        sp_value = data.get("value")
+        print(f"Nastavujem setpoint na: {sp_value}")
+        send_command_to_arduino({"command": "set_setpoint", "value": sp_value})
 
 
 def check_and_sync_initial_debug_state():
@@ -120,6 +124,8 @@ def send_command_to_arduino(payload):
         cmd_str = f"DEBUG:{state}\n"
     elif command == "set_pwm":
         cmd_str = f"PWM:{payload.get('value', 0)}\n"
+    elif command == "set_setpoint":
+        cmd_str = f"SP:{payload.get('value', 23.0)}\n"
 
     if USE_DUMMY_DATA:
         print(f"[SIMULÁCIA ARDUINO] Odoslané do Arduina: {cmd_str.strip()}")
