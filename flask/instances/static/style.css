@@ -155,7 +155,7 @@ h2 {
 }
 
 .btn-light-danger:disabled {
-    background-color: rgb(245, 167, 115);
+    background-color: rgb(236, 156, 102);
     cursor: not-allowed;
 }
 
@@ -479,4 +479,37 @@ hr {
 .alert-info {
   background: #d1ecf1;
   color: #0c5460;
+}
+
+.setpoint-controls input[type="number"],
+#debug-pwm-input {
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    padding: 6px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    text-align: center;
+    outline: none;
+    background-color: #fff;
+    width: 90px;
+    transition: border-color 0.15s ease;
+    -moz-appearance: textfield;
+}
+
+.setpoint-controls input[type="number"]:hover,
+#debug-pwm-input:hover {
+    border-color: #9ca3af;
+}
+
+.setpoint-controls input[type="number"]:focus,
+#debug-pwm-input:focus {
+    border-color: #6b7280;
+}
+
+.setpoint-controls input[type="number"]::-webkit-outer-spin-button,
+.setpoint-controls input[type="number"]::-webkit-inner-spin-button,
+#debug-pwm-input::-webkit-outer-spin-button,
+#debug-pwm-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
