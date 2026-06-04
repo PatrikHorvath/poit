@@ -1,4 +1,5 @@
 .env
+.vscode/settings.json
 mysql_data/
 .vscode/sftp.json
 
