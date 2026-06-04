@@ -28,7 +28,7 @@ git push origin branchName
 ```
 
 # Dokumentácie
-Ak je to applicable alebo dosť podstatné pre to čo ste vykonali, tak si spravte z master branche novu branch a pridajte nejaký `nazov_dokumentacie.md`, nech sa nakoniec z toho môže čerpať na dokumentáciu. 
+Ak je to applicable alebo dosť podstatné pre to čo ste vykonali, tak si spravte z master branche novu branch a pridajte nejaký `nazov_dokumentacie.md`, nech sa nakoniec z toho môže čerpať na dokumentáciu. Ideálne keď chcete napísať tak rovno v browseri kliknite na ADD FILE keď ste vo vetve MAIN a vo folderi DOCUMENTS
 
 # Prvotné rozdelenie práce
 - Patrik Horváth

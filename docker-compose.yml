@@ -1,0 +1,55 @@
+services:
+  poit-flask-apps:
+    container_name: poit-flask-instance
+    build:
+      context: ./flask_conf
+      dockerfile: Dockerfile
+      args:
+        - DEV_PASSWORD=${DEV_USER_PWD}
+    volumes:
+      - ./flask/instances:/home/devuser/flask/instances
+    ports:
+      - "2222:22"
+      - "8888:5000"
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Bratislava
+    depends_on:
+      - poit-mysql-db
+    networks:
+      - poit-web-network
+
+  poit-phpmyadmin:
+    container_name: poit-phpmyadmin
+    image: phpmyadmin:5.2.3
+    restart: unless-stopped
+    depends_on:
+      - poit-mysql-db
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=poit-mysql-db
+      - PMA_ARBITRARY=0
+      - MYSQL_ROOT_PASSWORD=${SQL_ROOT_PWD}
+      - TZ=Europe/Bratislava
+    networks:
+      - poit-web-network
+
+  poit-mysql-db:
+    container_name: poit-mysql-db
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SQL_ROOT_PWD}
+      MYSQL_DATABASE: flask_db
+      MYSQL_USER: flask
+      MYSQL_PASSWORD: ${SQL_FLASK_PWD}
+      TZ: Europe/Bratislava
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+    networks:
+      - poit-web-network
+
+networks:
+  poit-web-network:
+    driver: bridge
