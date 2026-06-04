@@ -102,6 +102,46 @@ async function controlSystem(command) {
     }
 }
 
+async function disconnectSocket() {
+    try {
+        // Najprv vypnúť systém cez API endpoint
+        const response = await fetch(`${API}/api/device/control`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'off' })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            showNotification(data.message, 'success');
+        } else {
+            showNotification(`Chyba pri vypínaní: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        showNotification(`Chyba pri vypínaní: ${err.message}`, 'error');
+    }
+
+    // Potom ukončiť socket spojenie
+    if (monitoringActive) {
+        socket.emit('leave_monitoring');
+        monitoringActive = false;
+    }
+
+    socket.disconnect();
+    showNotification('Spojenie ukončené', 'info');
+
+    // Aktualizovať UI - všetko zablokovať
+    document.getElementById('btn-power-on').disabled = true;
+    document.getElementById('btn-power-off').disabled = true;
+    document.getElementById('btn-start-monitor').disabled = true;
+    document.getElementById('btn-stop-monitor').disabled = true;
+    document.getElementById('btn-disconnect').disabled = true;
+
+    const connectionSpan = document.getElementById('connection-status');
+    connectionSpan.innerHTML = 'Odpojené';
+    connectionSpan.className = 'status-badge status-disconnected';
+}
+
 function sendDebugPwm() {
     const input = document.getElementById('debug-pwm-input');
     const pwmValue = parseInt(input.value, 10);

@@ -143,6 +143,23 @@ h2 {
   color: white;
 }
 
+
+.btn-light-danger {
+    background-color: #f16f33;
+    color: white;
+    border: none;
+}
+
+.btn-light-danger:hover:not(:disabled) {
+    background-color: #f16f33;
+}
+
+.btn-light-danger:disabled {
+    background-color: rgb(245, 167, 115);
+    cursor: not-allowed;
+}
+
+
 /* Filtre */
 .filter-controls {
   background: #f8f9fa;
