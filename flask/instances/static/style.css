@@ -288,12 +288,61 @@ input[type="datetime-local"] {
   background: #e0e0e0;
   height: 30px;
   border-radius: 15px;
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
 }
 
 .gauge-fill {
   height: 100%;
   transition: width 0.5s ease;
+}
+
+
+.gauge-marker {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 3px;
+    background: #d32f2f;
+    transform: translateX(-50%);
+    z-index: 2;
+    border-radius: 2px;
+    box-shadow: 0 0 4px rgba(211, 47, 47, 0.6);
+}
+
+.gauge-marker-label {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    font-weight: bold;
+    color: #d32f2f;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.gauge-values-pair {
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.gauge-value-item {
+    text-align: center;
+}
+
+.gauge-value-item h3 {
+    margin: 0 0 4px 0;
+    /* zachová tvoje existujúce štýly pre h3 */
+}
+
+.gauge-value-setpoint {
+    color: #d32f2f;
 }
 
 /* Štatistiky */

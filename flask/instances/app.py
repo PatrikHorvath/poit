@@ -179,6 +179,43 @@ def handle_set_peltier_pwm(data):
     emit("debug_success", {"message": f"PWM nastavené na {pwm_value}%"})
 
 
+@socketio.on("set_setpoint")
+def handle_set_setpoint(data):
+    """Nastavenie želanej hodnoty teploty (setpoint pre regulátor)"""
+    if not device_info["connected"]:
+        emit("setpoint_error", {"error": "Zariadenie nie je pripojené"})
+        return False
+
+    setpoint_value = data.get("setpoint")
+    if setpoint_value is None:
+        emit("setpoint_error", {"error": "Chýba hodnota setpointu"})
+        return False
+
+    try:
+        setpoint_value = float(setpoint_value)
+    except (ValueError, TypeError):
+        emit("setpoint_error", {"error": "Neplatný formát hodnoty"})
+        return False
+
+    # voliteľná validácia rozsahu - uprav podľa svojich potrieb
+    if not (-20.0 <= setpoint_value <= 80.0):
+        emit("setpoint_error", {"error": "Setpoint mimo povoleného rozsahu"})
+        return False
+
+    socketio.emit(
+        "control_command",
+        {"command": "set_setpoint", "value": setpoint_value},
+        room=device_info["sid"],
+    )
+    # broadcast všetkým monitorujúcim klientom
+    socketio.emit(
+        "setpoint_update",
+        {"setpoint": setpoint_value},
+        room="monitoring",
+    )
+    print(f"Setpoint: sent {setpoint_value}°C to device {device_info['sid']}")
+    emit("setpoint_success", {"message": f"Želaná teplota nastavená na {setpoint_value}°C"})
+
 # ---------------------------------------------------------------
 #  API ENDPOINTY - pre ovládanie zariadenia a získavanie dát
 # ---------------------------------------------------------------

@@ -73,6 +73,27 @@
             ZRUŠIŤ SLEDOVANIE
           </button>
         </div>
+        
+        <div class="setpoint-controls">
+          <h3>Želaná hodnota</h3>
+          <div class="filter-group" style="margin-top: 10px">
+            <label for="setpoint-input">Želaná teplota (°C):</label>
+            <input
+              type="number"
+              id="setpoint-input"
+              min="0"
+              max="50"
+              step="0.1"
+              value="25"
+              style="width: 80px"
+            />
+            <button class="btn-filter" onclick="sendSetpoint()">
+              Nastaviť
+            </button>
+          </div>
+        </div>
+
+
 
         <div id="debug-control-panel" style="display: none">
           <hr />

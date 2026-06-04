@@ -31,7 +31,7 @@ import socketio
 
 load_dotenv()
 
-USE_DUMMY_DATA = False  # True = generuje náhodné dáta, False = číta z COM portu
+USE_DUMMY_DATA = True  # True = generuje náhodné dáta, False = číta z COM portu
 SERIAL_PORT = "COM5"
 BAUD_RATE = 115200
 API_URL = "https://dietpi.tailfa8c79.ts.net/api/measurements"
