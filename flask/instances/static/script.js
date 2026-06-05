@@ -51,7 +51,10 @@ socket.on('debug_success', (data) => {
 socket.on('live_temperature', (data) => {
     if (!monitoringActive) return;
 
-    data.setpoint = currentSetpoint;  // <-- pridané
+    if (data.setpoint !== null && data.setpoint !== undefined) {
+        currentSetpoint = data.setpoint;
+    }
+
     liveTemperatures.push(data);
     updateLiveDisplay(data.value, data.timestamp);
 
@@ -60,7 +63,7 @@ socket.on('live_temperature', (data) => {
     }
 
     if (currentLiveView === 'chart') {
-        addDataToLiveChart(data.value, data.pwm, data.setpoint, data.timestamp);  // <-- nový parameter
+        addDataToLiveChart(data.value, data.pwm, data.setpoint, data.timestamp);
     } else if (currentLiveView === 'table') {
         updateLiveTable(liveTemperatures);
     } else if (currentLiveView === 'gauge') {
@@ -186,6 +189,7 @@ function downloadHistoryDataJSON() {
         id: index + 1,
         temperature: t.value,
         peltier_pwm: t.pwm,
+        setpoint: t.setpoint,
         time_measured: t.timestamp
     }));
 
@@ -418,11 +422,13 @@ function updateHistoryChart(temperatures) {
     const labels = temperatures.map(t => new Date(t.timestamp).toLocaleString());
     const tempValues = temperatures.map(t => t.value);
     const pwmValues = temperatures.map(t => t.pwm);
+    const setpointValues = temperatures.map(t => t.setpoint);
 
     if (historyChart) {
         historyChart.data.labels = labels;
         historyChart.data.datasets[0].data = tempValues;
         historyChart.data.datasets[1].data = pwmValues;
+        historyChart.data.datasets[2].data = setpointValues;
         historyChart.update();
     } else {
         historyChart = new Chart(ctx, {
@@ -453,6 +459,20 @@ function updateHistoryChart(temperatures) {
                         tension: 0.3,
                         fill: false,
                         yAxisID: 'y1'
+                    },
+                    {
+                        label: 'Želaná hodnota (°C)',
+                        data: setpointValues,
+                        borderColor: 'rgb(76, 175, 80)',
+                        borderDash: [6, 4],
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        tension: 0,
+                        stepped: true,
+                        fill: false,
+                        spanGaps: false,
+                        yAxisID: 'y'
                     }
                 ]
             }, options: chartOptions(isLive = false)
@@ -627,6 +647,7 @@ function buildTable(temperatures) {
                 <tr>
                     <th>#</th>
                     <th>Teplota (°C)</th>
+                    <th>Želaná (°C)</th>
                     <th>Peltier PWM (%)</th>
                     <th>Čas merania</th>
                 </tr>
@@ -636,6 +657,7 @@ function buildTable(temperatures) {
                     <tr>
                         <td>${temperatures.length - index}</td>
                         <td><strong>${t.value}</strong></td>
+                        <td>${t.setpoint !== undefined && t.setpoint !== null ? t.setpoint.toFixed(1) : '-'}</td>
                         <td>${t.pwm !== undefined && t.pwm !== null ? t.pwm : '-'} %</td>
                         <td>${new Date(t.timestamp).toLocaleString()}</td>
                     </tr>

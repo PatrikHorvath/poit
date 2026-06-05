@@ -13,27 +13,9 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 BACKUP_DIR = "/home/devuser/flask/instances/static/files"
 FILE_PATH = os.path.join(BACKUP_DIR, "backup.json")
 LOCAL_TZ = timezone(timedelta(hours=2))
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
-
-active_session_cache = {"start_time": None, "recent_measurements": []}
-
-MAX_CACHE_SIZE = 50
-
-if os.path.exists(FILE_PATH):
-    try:
-        with open(FILE_PATH, "a") as f:
-            last_line = None
-            for line in f:
-                if line.strip():
-                    last_line = line
-            if last_line:
-                last_data = json.loads(last_line)
-                if last_data.get("type") == "session_start":
-                    active_session_cache["start_time"] = last_data.get("timestamp")
-    except Exception as e:
-        print(f"Error checking initial backup file status: {e}")
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="eventlet")
 
@@ -98,7 +80,6 @@ def handle_disconnect():
         print("Device disconnected")
 
         end_current_session()
-        end_backup_session()
 
         socketio.emit("device_status_update", {"status": "off", "connected": False})
 
@@ -224,57 +205,32 @@ def handle_set_setpoint(data):
 # pozeranie aktualneho backup JSON suboru
 @app.route("/api/backup/download", methods=["GET"])
 def get_backup_file():
-    """Získať aktuálny JSON súbor zálohy"""
     if not os.path.exists(FILE_PATH):
-        return jsonify({"sessions": []}), 200
+        return jsonify({"measurements": []}), 200
 
-    sessions = []
-    current_session = None
+    measurements = []
 
     try:
-        # Čítanie riadok po riadku na zabránenie preťaženiu pamäte RAM
         with open(FILE_PATH, "r") as f:
             for line in f:
                 if not line.strip():
                     continue
                 try:
                     entry = json.loads(line)
-                    entry_type = entry.get("type")
-
-                    if entry_type == "session_start":
-                        if current_session:
-                            sessions.append(current_session)
-                        current_session = {
-                            "start_time": entry.get("timestamp"),
-                            "end_time": None,
-                            "measurements": [],
+                    if entry.get("type") in ("session_start", "session_end"):
+                        continue
+                    measurements.append(
+                        {
+                            "temperature": entry.get("temperature"),
+                            "peltier_pwm": entry.get("peltier_pwm"),
+                            "setpoint": entry.get("setpoint"),
+                            "timestamp": entry.get("timestamp"),
                         }
-                    elif entry_type == "measurement":
-                        if not current_session:
-                            current_session = {
-                                "start_time": entry.get("timestamp"),
-                                "end_time": None,
-                                "measurements": [],
-                            }
-                        current_session["measurements"].append(
-                            {
-                                "temperature": entry.get("temperature"),
-                                "peltier_pwm": entry.get("peltier_pwm"),
-                                "timestamp": entry.get("timestamp"),
-                            }
-                        )
-                    elif entry_type == "session_end":
-                        if current_session:
-                            current_session["end_time"] = entry.get("timestamp")
-                            sessions.append(current_session)
-                            current_session = None
+                    )
                 except json.JSONDecodeError:
                     continue
 
-        if current_session:
-            sessions.append(current_session)
-
-        return jsonify({"sessions": sessions}), 200
+        return jsonify({"measurements": measurements, "count": len(measurements)}), 200
     except Exception as e:
         return jsonify({"error": f"Failed to read backup file: {str(e)}"}), 500
 
@@ -313,7 +269,7 @@ def archived_data_filter(start_timestamp, end_timestamp):
 
         cursor.execute(
             """
-            SELECT temperature, peltier_pwm, time_measured
+            SELECT temperature, peltier_pwm, setpoint, time_measured
             FROM temperature_measurements
             WHERE time_measured BETWEEN %s AND %s
             ORDER BY time_measured ASC
@@ -323,7 +279,6 @@ def archived_data_filter(start_timestamp, end_timestamp):
 
         rows = cursor.fetchall()
 
-        # Serializácia datetime na string
         temperatures = [
             {
                 "value": (
@@ -333,6 +288,9 @@ def archived_data_filter(start_timestamp, end_timestamp):
                 ),
                 "pwm": (
                     int(row["peltier_pwm"]) if row["peltier_pwm"] is not None else None
+                ),
+                "setpoint": (
+                    float(row["setpoint"]) if row["setpoint"] is not None else None
                 ),
                 "timestamp": (
                     row["time_measured"].isoformat()
@@ -399,7 +357,7 @@ def get_last_session_data():
 
         cursor.execute(
             """
-            SELECT temperature, peltier_pwm, time_measured 
+            SELECT temperature, peltier_pwm, setpoint, time_measured 
             FROM temperature_measurements 
             WHERE session_id = %s
             ORDER BY time_measured ASC
@@ -417,6 +375,9 @@ def get_last_session_data():
                 ),
                 "pwm": (
                     int(row["peltier_pwm"]) if row["peltier_pwm"] is not None else None
+                ),
+                "setpoint": (
+                    float(row["setpoint"]) if row["setpoint"] is not None else None
                 ),
                 "timestamp": (
                     row["time_measured"].isoformat()
@@ -489,10 +450,8 @@ def control_device():
 
     if command == "on":
         start_new_session_db()
-        start_new_backup_session()
     elif command == "off":
         end_current_session()
-        end_backup_session()
 
     device_info["status"] = command
     socketio.emit("device_status_update", {"status": command, "connected": True})
@@ -518,8 +477,8 @@ def add_measurements():
         cursor = conn.cursor()
         query = """
             INSERT INTO temperature_measurements 
-            (temperature, peltier_pwm, time_measured) 
-            VALUES (%s, %s, %s)
+            (temperature, peltier_pwm, setpoint, time_measured) 
+            VALUES (%s, %s, %s, %s)
         """
         broadcast_data = []
         items = payload if isinstance(payload, list) else [payload]
@@ -536,6 +495,11 @@ def add_measurements():
                     if item.get("pwm_peltier") is not None
                     else None
                 )
+                setpoint = (
+                    float(item.get("setpoint"))
+                    if item.get("setpoint") is not None
+                    else None
+                )
                 ts_raw = item.get("timestamp")
 
                 if isinstance(ts_raw, (int, float)):
@@ -543,20 +507,21 @@ def add_measurements():
                 else:
                     timestamp = ts_raw
 
-                cursor.execute(query, (temp, pwm, timestamp))
+                cursor.execute(query, (temp, pwm, setpoint, timestamp))
 
                 ts_str = (
                     timestamp.isoformat()
                     if isinstance(timestamp, datetime)
                     else str(timestamp)
                 )
-                append_measurement_to_backup(temp, pwm, ts_str)
+                append_measurement_to_backup(temp, pwm, setpoint, ts_str)
 
                 broadcast_data.append(
                     {
                         "id": cursor.lastrowid,
                         "value": temp,
                         "pwm": pwm,
+                        "setpoint": setpoint,
                         "timestamp": ts_str,
                     }
                 )
@@ -564,7 +529,6 @@ def add_measurements():
                 continue
 
         conn.commit()
-        # broadcast do websocket room
         for data_point in broadcast_data:
             socketio.emit("live_temperature", data_point, room="monitoring")
         return jsonify({"message": "Data saved successfully"}), 201
@@ -582,51 +546,14 @@ def add_measurements():
 # ---------------------------------------------------------------
 
 
-def start_new_backup_session():
-    global active_session_cache
-    # Zmena z timezone.utc na LOCAL_TZ
-    now_str = datetime.now(LOCAL_TZ).isoformat()
 
-    active_session_cache["start_time"] = now_str
-    active_session_cache["recent_measurements"] = []
-
-    try:
-        with open(FILE_PATH, "a") as f:
-            f.write(json.dumps({"type": "session_start", "timestamp": now_str}) + "\n")
-    except Exception as e:
-        print(f"Error writing session start to backup: {e}")
-
-
-def end_backup_session():
-    global active_session_cache
-    # Zmena z timezone.utc na LOCAL_TZ
-    now_str = datetime.now(LOCAL_TZ).isoformat()
-    try:
-        with open(FILE_PATH, "a") as f:
-            f.write(json.dumps({"type": "session_end", "timestamp": now_str}) + "\n")
-    except Exception as e:
-        print(f"Error writing session end to backup: {e}")
-
-    active_session_cache["start_time"] = None
-    active_session_cache["recent_measurements"] = []
-
-
-def append_measurement_to_backup(temp, pwm, timestamp_str):
-    global active_session_cache
-    if not active_session_cache["start_time"]:
-        start_new_backup_session()
-
+def append_measurement_to_backup(temp, pwm, setpoint, timestamp_str):
     measurement_node = {
-        "type": "measurement",
         "temperature": temp,
         "peltier_pwm": pwm,
+        "setpoint": setpoint,
         "timestamp": timestamp_str,
     }
-
-    # Udržiavanie obmedzenej cache vyrovnávacej pamäte
-    active_session_cache["recent_measurements"].append(measurement_node)
-    if len(active_session_cache["recent_measurements"]) > MAX_CACHE_SIZE:
-        active_session_cache["recent_measurements"].pop(0)
 
     try:
         with open(FILE_PATH, "a") as f:
@@ -694,7 +621,7 @@ def get_current_session_data():
         # Získať všetky merania pre aktuálnu session
         cursor.execute(
             """
-            SELECT temperature, peltier_pwm, time_measured 
+            SELECT temperature, peltier_pwm, setpoint, time_measured 
             FROM temperature_measurements 
             WHERE session_id = %s
             ORDER BY time_measured ASC
@@ -712,6 +639,9 @@ def get_current_session_data():
                 ),
                 "peltier_pwm": (
                     int(row["peltier_pwm"]) if row["peltier_pwm"] is not None else None
+                ),
+                "setpoint": (
+                    float(row["setpoint"]) if row["setpoint"] is not None else None
                 ),
                 "time_measured": (
                     row["time_measured"].isoformat()
