@@ -1,23 +1,3 @@
-# Súbor je určený na spúšťanie na počítači alebo NodeNCU, ktorý komunikuje s Arduino UNO R3
-
-"""_summary_
-
-Čítanie: 115200 baud
-COM / TTY port
-
-Formát dát:
-{
-    "timestamp": "YYYY-MM-DD HH:MM:SS",
-    "temperature": float,
-    "pwm_peltier": int, [%]
-}
-
-Odosielanie na API:    JSON, každých X meraní (počet špecifikujeme po implementácii)
-
-API Endpoint: dietpi.tailfa8c79.ts.net/dbdata/session
-Metóda: POST
-"""
-
 import serial
 from serial import SerialException
 import json
@@ -148,6 +128,7 @@ def get_dummy_measurement():
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "temperature": round(random.uniform(20.0, 30.0), 2),
         "pwm_peltier": random.randint(0, 100),
+        "setpoint": 23.0,
     }
 
 
@@ -185,12 +166,14 @@ def main():
                             parts = line.split(":", 1)[1].split(",")
                             temp_val = float(parts[0])
                             pwm_val = int(parts[1])
+                            sp_val = float(parts[2])
                             measurement = {
                                 "timestamp": datetime.now().strftime(
                                     "%Y-%m-%d %H:%M:%S"
                                 ),
                                 "temperature": temp_val,
                                 "pwm_peltier": pwm_val,
+                                "setpoint": sp_val,
                             }
                         except (ValueError, IndexError):
                             print(f"Chyba formátu dát z Arduina: {line}")
@@ -254,6 +237,7 @@ def send_to_thingsboard(payload_buffer):
                     "values": {
                         "temperature": entry["temperature"],
                         "pwm_peltier": entry["pwm_peltier"],
+                        "setpoint": entry.get("setpoint", 23.0),
                     },
                 }
             )

@@ -81,7 +81,9 @@ void loop() {
       Serial.print("DATA:");
       Serial.print(celsius);
       Serial.print(",");
-      Serial.println(pwmPercent);
+      Serial.print(pwmPercent);
+      Serial.print(",");
+      Serial.println(setpoint);
     }
     lastTempCheck = millis();
   }
